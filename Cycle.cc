@@ -147,7 +147,33 @@ void Cycle::worker_process_cycle()
 
     for ( ;; )
     {
+        if (m_exiting) {
+            // TODO
+            // if (ngx_event_no_timers_left() == NGX_OK) {
+            //     ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "exiting");
+            //     ngx_worker_process_exit(cycle);
+            // }
+        }
+
         Int rc = g_epoller->process_events_and_timers();
+
+        if (g_process->m_sig_terminate) {
+            // TODO
+            // ngx_worker_process_exit(cycle);
+        }
+
+        if (g_process->m_sig_quit) {
+            g_process->m_sig_quit = 0;
+            // TODO
+
+            if (!m_exiting) {
+                m_exiting = true;
+                // TODO
+                // ngx_set_shutdown_timer(cycle);
+                // ngx_close_listening_sockets(cycle);
+                // ngx_close_idle_connections(cycle);
+            }
+        }
     }
 }
 
@@ -159,7 +185,6 @@ void Cycle::init_connections_and_events()
         m_connections[i].m_read_event = &m_read_events[i];
         m_connections[i].m_write_event = &m_write_events[i];
         m_connections[i].m_fd = -1;
-
         m_read_events[i].m_instance = true;
         m_read_events[i].m_closed = true;
 

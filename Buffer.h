@@ -4,9 +4,10 @@
 #include "Config.h"
 #include "Connection.h"
 
+class Pool;
 class Buffer {
 public:
-    static Buffer *create_temp_buffer(Connection *c, size_t size);
+    static Buffer *create_temp_buffer(Pool *pool, size_t size);
 
     bool in_memory() const { 
         return m_memory || m_temporary || m_mmap; 

@@ -30,7 +30,7 @@ constexpr size_t TIME_SLOTS = 64;
 
 /* 是否对超时的连接发送 RST */
 constexpr bool RESET_TIMEDOUT_CONNECTION = true;
-
+constexpr bool DAEMONIZED = false;
 constexpr size_t EPOLL_EVENTS_SLOT = 512;
 constexpr size_t CONNECTIONS_SLOT = 512;
 
@@ -39,4 +39,7 @@ constexpr unsigned TIME_RESOLUTION = 100;
 constexpr unsigned ACCEPT_DELAY = 500;
 constexpr unsigned CLIENT_HEADER_TIMEOUT = 60000;
 constexpr unsigned TIMER_LAZY_DELAY = 300;
+
+constexpr bool HTTP_LINGERING_ALWAYS    = false; 
+constexpr bool HTTP_LINGERING_ON        = true; 
 #endif

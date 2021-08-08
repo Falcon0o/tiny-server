@@ -15,9 +15,11 @@ public:
     sig_atomic_t        m_sig_quit;
     sig_atomic_t        m_sig_io;
     sig_atomic_t        m_sig_alarm;
+    sig_atomic_t        m_sig_terminate;
+    sig_atomic_t        m_sig_noaccept;
 };
 
-const int signals[] = {SIGQUIT, SIGIO};
+const int signals[] = {SIGQUIT, SIGIO, SIGTERM, SIGINT, SIGWINCH};
 void signal_handler(int signo, siginfo_t *siginfo, void *ucontext);
 void timer_signal_handler(int signo);
 #endif

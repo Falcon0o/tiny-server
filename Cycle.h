@@ -33,6 +33,7 @@ public:
     void reusable_connection(Connection *c, bool reusable);
     size_t worker_id() const { return m_worker_id; }
 
+    bool                            m_exiting;
     
 private:
     void clone_listening_socket();

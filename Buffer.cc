@@ -1,16 +1,17 @@
 #include "Buffer.h"
 
 #include "Connection.h"
+#include "Pool.h"
 
-Buffer *Buffer::create_temp_buffer(Connection *c, size_t size)
+Buffer *Buffer::create_temp_buffer(Pool *pool, size_t size)
 {
-    void *ans = c->pool_calloc(1, sizeof(Buffer));
+    void *ans = pool->calloc(1, sizeof(Buffer));
     
     if (ans == nullptr) {
         return nullptr;
     }
 
-    void *start = c->pool_malloc(size);
+    void *start = pool->malloc(size);
     if (start == nullptr)
     {
         free(ans);

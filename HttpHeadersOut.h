@@ -11,6 +11,7 @@ class HttpHeadersOut
 public:
     off_t                           m_content_length_n;
     time_t                          m_last_modified_time;
+    uInt                            m_status;                             
 //     HttpHeadersOut();
 //     ~HttpHeadersOut();
 // private:

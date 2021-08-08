@@ -7,11 +7,6 @@
 #include "Epoller.h"
 #include "Event.h"
 
-template <typename T>
-void HttpRequest::set_read_event_handler(T f)
-{
-    m_read_event_handler = std::bind(f, this);
-} 
 
 void HttpRequest::block_reading_handler()
 {
@@ -57,13 +52,13 @@ Int HttpRequest::alloc_large_header_buffer(bool request_line)
         m_http_connection->m_free_buffers = bc->m_next;
     
     } else if (m_http_connection->m_busy_buffers_num < LARGE_CLIENT_HEADER_BUFFER_NUM){
-        b = Buffer::create_temp_buffer(m_connection, LARGE_CLIENT_HEADER_BUFFER_SIZE);
+        b = Buffer::create_temp_buffer(&m_connection->m_pool, LARGE_CLIENT_HEADER_BUFFER_SIZE);
 
         if (b == nullptr) {
             return ERROR;
         }
 
-        BufferChain *bc = static_cast<BufferChain*>(m_connection->pool_malloc(sizeof(BufferChain)));
+        BufferChain *bc = static_cast<BufferChain*>(m_connection->m_pool.malloc(sizeof(BufferChain)));
         if (bc == nullptr) {
             return ERROR;
         }

@@ -9,7 +9,9 @@ Process::Process(Process::Type type, pid_t ppid, pid_t pid)
 
     m_sig_alarm(0),
     m_sig_io(0),
-    m_sig_quit(0)
+    m_sig_quit(0),
+    m_sig_terminate(0),
+    m_sig_noaccept(0)
 {
 }
 
@@ -23,13 +25,23 @@ void signal_handler(int signo, siginfo_t *siginfo, void *ucontext)
     switch (g_process->m_type)
     {
     case Process::Type::master:
-    case Process::Type::worker:
         switch (signo)
         {
         case SIGQUIT:
             g_process->m_sig_quit = 1;
             break;
+
+        case SIGTERM:
+        case SIGINT:
+            g_process->m_sig_terminate = 1;
+            break;
         
+        case SIGWINCH:
+            if (DAEMONIZED) {
+                g_process->m_sig_noaccept = 1;
+            }
+            break;
+
         case SIGIO:
             g_process->m_sig_io = 1;
         // case SIGINT:
@@ -37,6 +49,9 @@ void signal_handler(int signo, siginfo_t *siginfo, void *ucontext)
         default:
             break;
         }
+        break;
+
+    case Process::Type::worker:
     default:
         break;
     }

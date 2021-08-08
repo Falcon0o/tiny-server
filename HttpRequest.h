@@ -6,6 +6,7 @@
 #include "HttpHeadersIn.h"
 #include "HttpHeadersOut.h"
 
+#include "Pool.h"
 
 class Buffer;
 class Connection;
@@ -66,14 +67,45 @@ public:
     /* 和子请求相关，无子请求计数应为 1 */ 
     size_t                       m_count:16;
     /* 和子请求相关，默认值为 0 */ 
+    
+    unsigned                     m_reading_body:1;
+    unsigned                     m_post_action:1;
+    unsigned                     m_request_complete:1;
+    unsigned                     m_filter_finalize:1;
+
+    unsigned                     m_done:1;
+    unsigned                     m_keepalive:1;
+    unsigned                     m_lingering_close:1;
+    unsigned                     m_buffered:4;
+    
     unsigned                     m_blocked:8;
     
-    template <typename T> void set_read_event_handler(T f);
-    void run_read_event_handler();
+
+    template <typename T> void set_read_event_handler(T f) {
+        m_read_event_handler = std::bind(f, this);
+    }
+    template <typename T> void set_write_event_handler(T f) {
+        m_write_event_handler = std::bind(f, this);
+    }
+
+    void run_read_event_handler() { 
+        m_read_event_handler();
+    }
+    void run_write_event_handler() { 
+        m_write_event_handler(); 
+    }
+
 
     void block_reading_handler();
+    void run_phases_handler();
+
+    void empty_handler() {}
+
+    Pool                                *m_pool;
+
 private:
     std::function<void()>       m_read_event_handler;
+    std::function<void()>       m_write_event_handler;
 
     uInt                        m_parse_state;
 };

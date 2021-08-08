@@ -40,6 +40,7 @@ public:
     void    wait_http_request_handler(); 
     void    process_http_request_line_handler(); // ngx_http_process_request_line
     void    process_http_request_headers_handler();
+    void    http_request_handler();
     void    empty_handler();
 private:
     std::function<void()> m_handler;

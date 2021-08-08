@@ -146,7 +146,7 @@ void Event::wait_http_request_handler()
     
     Buffer *buf = conn->m_small_buffer;
     if (buf == nullptr) {
-        buf = Buffer::create_temp_buffer(conn, CLIENT_HEADER_BUFFER_SIZE);
+        buf = Buffer::create_temp_buffer(&conn->m_pool, CLIENT_HEADER_BUFFER_SIZE);
 
         if (buf == nullptr) {
             conn->close_http_connection();
@@ -157,7 +157,7 @@ void Event::wait_http_request_handler()
     
     } else if (buf->m_start == nullptr) {
 
-        buf->m_start = static_cast<u_char*>(conn->pool_malloc(CLIENT_HEADER_BUFFER_SIZE));
+        buf->m_start = static_cast<u_char*>(conn->m_pool.malloc(CLIENT_HEADER_BUFFER_SIZE));
         if(buf->m_start == nullptr) {
             conn->close_http_connection();
             return;
@@ -187,7 +187,7 @@ void Event::wait_http_request_handler()
          * We are trying to not hold c->buffer's memory for an idle connection.
          */
 
-        conn->pool_free(buf->m_start);
+        conn->m_pool.free(buf->m_start);
         buf->m_start = nullptr;
 
         return;
@@ -209,12 +209,14 @@ void Event::wait_http_request_handler()
 
     g_cycle->reusable_connection(conn, false);
 
-    conn->create_http_request();
-    if (conn->m_data == nullptr) { 
+    HttpRequest *r = conn->create_http_request();
+    if (r == nullptr) { 
         log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
         conn->close_http_connection();
         return;
     }
+    
+    conn->m_data = r;
 
     set_event_handler(&Event::process_http_request_line_handler);
     run_event_handler();
@@ -296,4 +298,30 @@ void Event::process_http_request_line_handler()
             }
         }   
     }
+}
+
+
+void Event::http_request_handler() {
+    Connection *c = static_cast<Connection*>(m_data);
+    HttpRequest *r = static_cast<HttpRequest*>(c->m_data);
+    if (c->m_close) {
+        r->m_main_request->m_count++;
+        c->terminate_http_request(r, 0);
+        // ngx_http_run_posted_requests(c);
+        return;
+    }
+
+    if (m_delayed && m_timeout) {
+        m_delayed = false;
+        m_timeout = false;
+    }
+
+    if (m_write) {
+        r->run_write_event_handler();
+    
+    } else {
+        r->run_read_event_handler();
+    }
+
+    // ngx_http_run_posted_requests(c);
 }

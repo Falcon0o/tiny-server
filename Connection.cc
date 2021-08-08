@@ -6,6 +6,7 @@
 #include "Epoller.h"
 #include "HttpConnection.h"
 #include "HttpRequest.h"
+
 #include "Timer.h"
 
 
@@ -77,45 +78,19 @@ void Connection::close_http_connection() {
     m_destroyed = true;
     close_connection();
 
-    for (auto iter = m_pool.begin(); iter != m_pool.end(); ++iter) {
-        void *addr = *iter;
-        free(addr);
-    }
-    
-    m_pool.clear();
+    m_pool.destroy_pool();
     m_data = nullptr;
-}
-
-void *Connection::pool_malloc(size_t s) {
-    void *ans = malloc(s);
-    if (ans) {
-        m_pool.insert(ans);
-    }
-    return ans;
-}
-
-void *Connection::pool_calloc(size_t n, size_t size) {
-    void *ans = calloc(n, size);
-    if (ans) {
-        m_pool.insert(ans);
-    }
-    return ans;
-}
-
-
-void Connection::pool_free(void *addr) {   
-    free(addr);
-    m_pool.erase(addr);
 }
 
 void Connection::create_http_connection()
 {
-    m_data = pool_malloc(sizeof(HttpConnection));
-
+    m_data = m_pool.malloc(sizeof(HttpConnection));
+    
     if (m_data == nullptr) {
         close_http_connection();
         return;
     }
+
     new (m_data)HttpConnection;
     
     m_read_event->set_event_handler(&Event::wait_http_request_handler);
@@ -204,16 +179,23 @@ ssize_t Connection::recv_to_buffer(Buffer *b)
     return n;
 }
 
-void Connection::create_http_request()
+HttpRequest *Connection::create_http_request()
 {
-    HttpRequest *r = static_cast<HttpRequest*>(pool_calloc(1, sizeof(HttpRequest)));
+    HttpConnection *hc = static_cast<HttpConnection*>(m_data);
+    Pool *pool = new Pool;
 
-    if (r == nullptr) {
-        return;
+    if (pool == nullptr) {
+        return nullptr;
     }
 
-    HttpConnection *hc = static_cast<HttpConnection*>(m_data);
-    m_data = nullptr;
+    HttpRequest *r = static_cast<HttpRequest*>(pool->calloc(1, sizeof(HttpRequest)));
+
+    if (r == nullptr) {
+        delete pool;
+        return nullptr;
+    }
+
+    r->m_pool = pool; 
 
     r->m_http_connection = hc;
     r->m_connection = this;
@@ -241,8 +223,7 @@ void Connection::create_http_request()
     // ngx_http_alloc_request
 
     ++m_request_cnt;
-
-    m_data = r;
+    return r;
 }
 
 // BufferChain *Connection::sendfile_chain(BufferChain *in, off_t limit)
@@ -390,3 +371,198 @@ void Connection::close_http_request(HttpRequest *r, Int rc) // ngx_http_close_re
     free_http_request(r, rc);
     close_connection();
 }
+
+void Connection::finalize_http_request(HttpRequest *r, Int rc)  // ngx_http_finalize_request
+{
+    if (rc == DONE) {
+        finalize_http_connection(r);
+        return;
+    }
+
+    if (rc == OK && r->m_filter_finalize) {
+        m_error = true;
+    }
+
+    if (rc == DECLINED) {
+        r->set_write_event_handler(&HttpRequest::run_phases_handler);
+        r->run_write_event_handler();
+        return;
+    }
+
+    //  if (r != r->main && r->post_subrequest) {
+    //     rc = r->post_subrequest->handler(r, r->post_subrequest->data, rc);
+    // }
+
+    if (rc == ERROR 
+        || rc == REQUEST_TIME_OUT
+        || rc == CLIENT_CLOSED_REQUEST
+        || m_error) 
+    {  
+        // if (ngx_http_post_action(r) == NGX_OK) {
+        //     return;
+        // }
+
+        terminate_http_request(r, rc);
+        return;
+    }
+
+    if (rc >= SPECIAL_RESPONSE
+        || rc == CREATED
+        || rc == NO_CONTENT)
+    {
+        if (rc == CLOSE) {
+            m_timedout = true;
+            terminate_http_request(r, rc);
+            return;
+        }
+
+        if (r == r->m_main_request) {
+            if (m_read_event->m_timer_set) {
+                g_epoller->del_timer(m_read_event);
+            }
+
+            if (m_write_event->m_timer_set) {
+                g_epoller->del_timer(m_write_event);
+            }
+
+            m_read_event->set_event_handler(&Event::http_request_handler);
+            m_write_event->set_event_handler(&Event::http_request_handler);
+            assert(0);
+            // ngx_http_finalize_request(r, ngx_http_special_response_handler(r, rc));
+            return;
+        }
+    }
+
+    if (r != r->m_main_request) {
+        assert(0);
+    }
+
+    if (r->m_buffered || m_buffered /*|| r->postponed*/) {
+        assert(0);
+        // if (ngx_http_set_write_handler(r) != NGX_OK) {
+        //     ngx_http_terminate_request(r, 0);
+        // }
+        return;
+    }
+
+    if (r != m_data) {
+        log_error(LogLevel::alert, "(%s: %d) http finalize non-active request\n", __FILE__, __LINE__);
+        return;
+    }
+
+    r->m_done = true;
+    
+    r->set_read_event_handler(&HttpRequest::block_reading_handler);
+    r->set_write_event_handler(&HttpRequest::empty_handler);
+
+    if (r->m_post_action == false) {
+        r->m_request_complete = true;
+    }
+
+    // if (ngx_http_post_action(r) == NGX_OK) {
+    //     return;
+    // }
+
+    if (m_read_event->m_timer_set) {
+        g_epoller->del_timer(m_read_event);
+    }
+
+    if (m_write_event->m_timer_set) {
+        m_write_event->m_delayed = false;
+        g_epoller->del_timer(m_write_event);
+    }
+
+    finalize_http_connection(r);
+}
+
+void Connection::free_http_request(HttpRequest *r, Int rc)
+{
+    if (r->m_pool == nullptr) {
+        log_error(LogLevel::alert, "(%s: %d)  http request already closed\n", __FILE__, __LINE__);
+        return;
+    }
+
+    if (rc > 0 && (r->m_header_out.m_status == 0 || m_sent == 0)) {
+        r->m_header_out.m_status = rc;
+    }
+
+    if (m_timedout) {
+        if (RESET_TIMEDOUT_CONNECTION) {
+            linger linger;
+
+            linger.l_onoff = 1;
+            linger.l_linger = 0;
+
+            /* 执行close() 时，若传输层发送缓冲区有数据，则丢弃全部数据 */
+            if (setsockopt(m_fd, SOL_SOCKET, SO_LINGER, 
+                            &linger, sizeof(struct linger)) == -1)
+            {
+                log_error(LogLevel::alert, "(%s, %d) setsockopt(SO_LINGER) failed",
+                            __FILE__, __LINE__);
+            }
+        }
+    }
+
+    r->m_request_line.m_len = 0;
+    m_destroyed = true;
+
+    Pool *pool = r->m_pool;
+    r->m_pool = nullptr;
+
+    pool->destroy_pool();
+}
+
+void Connection::finalize_http_connection(HttpRequest *r)
+{
+    if (r->m_main_request->m_count != 1) {
+        // if (r->discard_body) {
+        //     r->read_event_handler = ngx_http_discarded_request_body_handler;
+        //     ngx_add_timer(r->connection->read, clcf->lingering_timeout);
+
+        //     if (r->lingering_time == 0) {
+        //         r->lingering_time = ngx_time()
+        //                               + (time_t) (clcf->lingering_time / 1000);
+        //     }
+        // }
+        assert(0);
+        close_http_request(r, 0);
+        return;
+    }
+
+    r = r->m_main_request;
+    
+    // TODO 假设 r->m_main_request->m_connection == r->m_connection
+    // 假设不成立的话，所有Connection成员变量都可能不对
+
+    if (r->m_connection->m_read_event->m_eof) { 
+        close_http_request(r, 0);
+        return;
+    }
+
+    if (r->m_reading_body) {
+        r->m_keepalive = false;
+        r->m_lingering_close = true;
+    }
+
+    if (g_process->m_sig_terminate == 0
+        && !g_cycle->m_exiting
+        && r->m_keepalive 
+        && KEEPALIVE_TIMEOUT > 0) 
+    {
+        set_http_keepalive(r);
+        return;
+    }
+
+    if (HTTP_LINGERING_ALWAYS 
+        || (HTTP_LINGERING_ON
+            && (r->m_lingering_close
+                || r->m_header_in_buffer->m_pos < r->m_header_in_buffer->m_last
+                || r->m_connection->m_read_event->m_ready))) 
+    {
+        set_http_lingering_close();
+        return;
+    }
+
+    close_http_request(r, 0);
+}
+
