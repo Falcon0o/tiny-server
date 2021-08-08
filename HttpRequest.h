@@ -25,7 +25,7 @@ public:
     /* r->m_request_start; */
     Int alloc_large_header_buffer(bool request_line);
 
-
+    Int post_http_request();// ngx_http_post_request
     enum class Method{
         UNKNOWN,
         GET,
@@ -72,7 +72,7 @@ public:
     unsigned                     m_post_action:1;
     unsigned                     m_request_complete:1;
     unsigned                     m_filter_finalize:1;
-
+    unsigned                     m_pipeline:1;
     unsigned                     m_done:1;
     unsigned                     m_keepalive:1;
     unsigned                     m_lingering_close:1;
@@ -80,6 +80,7 @@ public:
     
     unsigned                     m_blocked:8;
     
+    unsigned                     m_posted:1; /* 自己加的 */
 
     template <typename T> void set_read_event_handler(T f) {
         m_read_event_handler = std::bind(f, this);
@@ -98,16 +99,16 @@ public:
 
     void block_reading_handler();
     void run_phases_handler();
-
+    void http_terminate_handler();
     void empty_handler() {}
-
+    void http_request_finalizer();
     Pool                                *m_pool;
 
-private:
     std::function<void()>       m_read_event_handler;
     std::function<void()>       m_write_event_handler;
 
     uInt                        m_parse_state;
 };
+
 
 #endif

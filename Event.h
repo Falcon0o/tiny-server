@@ -20,7 +20,10 @@ public:
     unsigned            m_eof:1;
     unsigned            m_err:1;
     unsigned            m_timer_set:1;
-    
+    unsigned            m_posted:1;
+
+    std::list<Event*>::iterator m_posted_iter;
+
     mSec                m_timer;                
     ssize_t             m_available_n;
     void               *m_data;
@@ -42,6 +45,7 @@ public:
     void    process_http_request_headers_handler();
     void    http_request_handler();
     void    empty_handler();
+    void    http_keepalive_handler();// ngx_http_keepalive_handler
 private:
     std::function<void()> m_handler;
 };

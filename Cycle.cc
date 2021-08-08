@@ -179,9 +179,9 @@ void Cycle::worker_process_cycle()
 
 void Cycle::init_connections_and_events()
 {
-    void *next = nullptr;
+    Connection *next = nullptr;
     for (int i = CONNECTIONS_SLOT - 1; i >= 0; --i) {
-        m_connections[i].m_data = next;
+        m_connections[i].m_data.c = next;
         m_connections[i].m_read_event = &m_read_events[i];
         m_connections[i].m_write_event = &m_write_events[i];
         m_connections[i].m_fd = -1;
@@ -244,7 +244,7 @@ Connection *Cycle::get_connection(int fd)
     }
 
     Connection *conn = m_free_connections;
-    m_free_connections = static_cast<Connection*>(conn->m_data);
+    m_free_connections = conn->m_data.c;
     --m_free_connections_n;
     
 
@@ -310,7 +310,7 @@ void Cycle::drain_connections()
 
 void Cycle::free_connection(Connection *c)
 {
-    c->m_data = m_free_connections;
+    c->m_data.c = m_free_connections;
     m_free_connections = c;
     ++m_free_connections_n;
 }

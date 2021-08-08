@@ -215,6 +215,7 @@ Int Epoller::process_events_and_timers()
     }
 
     expire_timers();
+    process_posted_events();
     return OK;
 }
 
@@ -367,4 +368,35 @@ void Epoller::expire_timers()
         ev->m_timer_set = false;
         ev->run_event_handler();
     } 
+}
+
+void Epoller::process_posted_events()
+{
+    while (m_posted_events.empty() == false) {
+
+        auto iter = m_posted_events.begin();
+        Event *ev = *iter;
+        if (ev->m_posted) {
+            ev->m_posted = false;
+            ev->run_event_handler();
+            m_posted_events.pop_front();
+        } 
+    }
+}
+
+void Epoller::add_posted_event(Event *ev)
+{
+    if (ev->m_posted == false) {
+        ev->m_posted = true;
+        m_posted_events.push_back(ev);
+        ev->m_posted_iter = m_posted_events.end();
+        ev->m_posted_iter--;
+    }
+}
+void Epoller::del_posted_event(Event *ev)
+{
+    if (ev->m_posted) {
+        m_posted_events.erase(ev->m_posted_iter);
+        ev->m_posted = false;
+    }
 }

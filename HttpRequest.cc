@@ -15,7 +15,7 @@ void HttpRequest::block_reading_handler()
     if (rev->m_active) {
         if (g_epoller->del_read_event(rev, false) != OK)
         {
-            m_connection->close_http_request(this, 0);
+            m_connection->close_http_request(0);
         }
     }
 }
@@ -113,5 +113,17 @@ Int HttpRequest::alloc_large_header_buffer(bool request_line)
     } 
 
     m_header_in_buffer = b;
+    return OK;
+}
+
+void HttpRequest::http_terminate_handler()
+{
+    m_count = 1;
+    m_connection->close_http_request(0);
+}
+
+Int HttpRequest::post_http_request()
+{
+    m_posted = true;
     return OK;
 }

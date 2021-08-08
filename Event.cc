@@ -142,7 +142,7 @@ void Event::wait_http_request_handler()
         return;
     }
 
-    HttpConnection *hc = static_cast<HttpConnection*>(conn->m_data);
+    HttpConnection *hc = conn->m_data.hc;
     
     Buffer *buf = conn->m_small_buffer;
     if (buf == nullptr) {
@@ -216,7 +216,7 @@ void Event::wait_http_request_handler()
         return;
     }
     
-    conn->m_data = r;
+    conn->m_data.r = r;
 
     set_event_handler(&Event::process_http_request_line_handler);
     run_event_handler();
@@ -226,12 +226,12 @@ void Event::process_http_request_line_handler()
 {
     Connection *conn = static_cast<Connection*>(m_data);
 
-    HttpRequest *r = static_cast<HttpRequest*>(conn->m_data);
+    HttpRequest *r = conn->m_data.r;
 
     if (m_timeout) {
         log_error(LogLevel::debug, "(%s: %d) client timed out\n", __FILE__, __LINE__);
         conn->m_timedout = true;
-        conn->close_http_request(r, REQUEST_TIME_OUT);
+        conn->close_http_request(REQUEST_TIME_OUT);
         return;
     }
     
@@ -303,11 +303,11 @@ void Event::process_http_request_line_handler()
 
 void Event::http_request_handler() {
     Connection *c = static_cast<Connection*>(m_data);
-    HttpRequest *r = static_cast<HttpRequest*>(c->m_data);
+    
     if (c->m_close) {
-        r->m_main_request->m_count++;
-        c->terminate_http_request(r, 0);
-        // ngx_http_run_posted_requests(c);
+        c->m_data.r->m_main_request->m_count++;
+        c->terminate_http_request(0);
+        c->run_posted_http_requests();
         return;
     }
 
@@ -317,11 +317,93 @@ void Event::http_request_handler() {
     }
 
     if (m_write) {
-        r->run_write_event_handler();
+        c->m_data.r->run_write_event_handler();
     
     } else {
-        r->run_read_event_handler();
+        c->m_data.r->run_read_event_handler();
     }
 
-    // ngx_http_run_posted_requests(c);
+    c->run_posted_http_requests();
 }
+
+void Event::http_keepalive_handler()
+{
+    Connection *c = static_cast<Connection*>(m_data);
+    if (m_timeout || c->m_close) {
+        c->close_http_connection();
+        return;
+    }
+
+    Buffer *b = c->m_small_buffer;
+
+    if (b->m_pos == nullptr) {
+        /*
+         * The c->buffer's memory was freed by ngx_http_set_keepalive().
+         * However, the c->buffer->start and c->buffer->end were not changed
+         * to keep the buffer size.
+         */
+        b->m_pos = (u_char*)c->m_pool.malloc(b->m_end - b->m_start);
+        if (b->m_pos == nullptr) {
+            c->close_http_connection();
+            return;
+        }
+
+        b->m_end    = b->m_pos + (b->m_end - b->m_start);
+        b->m_start  = b->m_pos;
+        b->m_last   = b->m_pos;
+    }
+
+    /*
+     * MSIE closes a keepalive connection with RST flag
+     * so we ignore ECONNRESET here.
+     */
+    // c->log_error = NGX_ERROR_IGNORE_ECONNRESET;
+    errno = 0;
+
+    ssize_t n = c->recv_to_buffer(b);
+
+    if (n == AGAIN) {
+        if (!m_active && !m_ready) {
+            if (g_epoller->add_read_event(this, EPOLLET) != OK) {
+                c->close_http_connection();
+                return;
+            }
+        }
+
+        c->m_pool.free(b->m_start);
+        b->m_pos = nullptr;
+        return;
+    }
+
+    if (n == ERROR) {
+        c->close_http_connection();
+        return;
+    }
+
+    if (n == 0) {
+        log_error(LogLevel::debug, "(%s: %d) client closed keepalive connection\n", __FILE__, __LINE__);
+        c->close_http_connection();
+        return;
+    }
+
+    b->m_last += n;
+
+    c->m_idle = false;
+    g_cycle->reusable_connection(c, false);
+    c->m_data.r = c->create_http_request();
+
+    if (c->m_data.r == nullptr) {
+        c->close_http_connection();
+        return;
+    }
+
+    c->m_sent = 0;
+    c->m_destroyed = false;
+    
+    g_epoller->del_timer(c->m_read_event);
+
+    c->m_read_event->set_event_handler(&Event::process_http_request_line_handler);
+    c->m_read_event->run_event_handler();
+}
+
+
