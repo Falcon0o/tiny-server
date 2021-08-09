@@ -7,7 +7,7 @@
 #include "HttpConnection.h"
 #include "HttpRequest.h"
 #include "Listening.h"
-
+#include "Timer.h"
 
 void Event::accept_handler()
 {
@@ -19,7 +19,7 @@ void Event::accept_handler()
         m_timeout = false;
     }
 
-    Connection *ls_conn = static_cast<Connection*>(m_data);
+    Connection *ls_conn = get_connection();
     Listening *ls = ls_conn->m_listening;
 
     m_ready = false;
@@ -129,7 +129,7 @@ void Event::empty_handler()
 
 void Event::wait_http_request_handler()
 {
-    Connection *conn = static_cast<Connection*>(m_data);
+    Connection *conn = get_connection();
     if (m_timeout) {
         log_error(LogLevel::debug, "(%s: %d) client timed out\n", __FILE__, __LINE__);
         conn->close_http_connection();
@@ -222,87 +222,8 @@ void Event::wait_http_request_handler()
     run_event_handler();
 }
 
-void Event::process_http_request_line_handler()
-{
-    Connection *conn = static_cast<Connection*>(m_data);
-
-    HttpRequest *r = conn->m_data.r;
-
-    if (m_timeout) {
-        log_error(LogLevel::debug, "(%s: %d) client timed out\n", __FILE__, __LINE__);
-        conn->m_timedout = true;
-        conn->close_http_request(REQUEST_TIME_OUT);
-        return;
-    }
-    
-    for (Int rc = AGAIN; ; ) {
-
-        if (rc == AGAIN) {
-            ssize_t n = r->read_request_header();
-            if (n == AGAIN || n == ERROR) {
-                break;
-            }
-        }
-
-        rc = r->parse_request_line();
-
-        if (rc == OK) {
-            
-            r->m_request_line.m_len     = r->m_request_end - r->m_request_start;
-            r->m_request_line.m_data    = r->m_request_start;
-            r->m_request_length         = r->m_header_in_buffer->m_pos - r->m_request_start;
-
-            r->m_method_name.m_len = r->m_method_end - r->m_request_start/* + 1 */;
-            r->m_method_name.m_data = r->m_request_line.m_data;
-
-            /* HTTP 09 没有以下部分 */
-            if (r->m_http_protocol_start) {
-                r->m_http_protocol.m_data = r->m_http_protocol_start;
-                r->m_http_protocol.m_len = r->m_request_end - r->m_http_protocol_start;
-            }
-
-            if (r->process_request_uri() != OK) {
-                break;
-            }
-
-            set_event_handler(&Event::process_http_request_headers_handler);
-            run_event_handler();
-            break;
-        }
-
-        if (rc != AGAIN) {
-            if (rc == PARSE_INVALID_VERSION) {
-                conn->finalize_http_request(r, VERSION_NOT_SUPPORTED);
-
-            } else {
-                conn->finalize_http_request(r, BAD_REQUEST);
-            }
-
-            break;
-        }
-
-        /* NGX_AGAIN: a request line parsing is still incomplete */
-        if (r->need_alloc_large_header_buffer()) {
-            Int rv = r->alloc_large_header_buffer(true);
-
-            if (rv == ERROR) {
-                conn->finalize_http_request(r, INTERNAL_SERVER_ERROR);
-                break;
-            }
-
-            if (rv == DECLINED) {
-                r->m_request_line.m_len = r->m_header_in_buffer->m_end - r->m_request_start;
-                r->m_request_line.m_data = r->m_request_start;
-                conn->finalize_http_request(r, REQUEST_URI_TOO_LARGE);
-                break;
-            }
-        }   
-    }
-}
-
-
 void Event::http_request_handler() {
-    Connection *c = static_cast<Connection*>(m_data);
+    Connection *c = get_connection();
     
     if (c->m_close) {
         c->m_data.r->m_main_request->m_count++;
@@ -328,7 +249,7 @@ void Event::http_request_handler() {
 
 void Event::http_keepalive_handler()
 {
-    Connection *c = static_cast<Connection*>(m_data);
+    Connection *c = get_connection();
     if (m_timeout || c->m_close) {
         c->close_http_connection();
         return;
@@ -407,3 +328,123 @@ void Event::http_keepalive_handler()
 }
 
 
+void Event::http_lingering_close_handler()
+{
+    u_char  buffer[HTTP_LINGERING_BUFFER_SIZE];
+    Buffer buf;
+    buf.m_start =  buf.m_pos = buf.m_last = buffer;
+    buf.m_end = buf.m_start + sizeof(buffer);
+
+    Connection *c = get_connection();
+
+    if (m_timeout || c->m_close) {
+        c->close_http_request(0);
+        return;
+    }
+
+    time_t timer = c->m_data.r->m_lingering_time - g_timer->cached_time_sec();
+    if (timer < 0) {
+        c->close_http_request(0);
+        return;
+    }
+
+    do {
+        ssize_t n = c->recv_to_buffer(&buf);
+
+        if (n == AGAIN) {
+            break;
+        }
+
+        if (n == ERROR || n == 0) {
+            c->close_http_request(0);
+            return;
+        }
+
+    } while(m_ready);
+
+    mSec msec = timer * 1000;
+    msec = msec > HTTP_LINGERING_TIMEOUT ? HTTP_LINGERING_TIMEOUT : msec;
+    g_epoller->add_timer(this, msec);
+}
+
+
+
+void Event::process_http_request_line_handler()
+{
+    Connection *conn = get_connection();
+
+    HttpRequest *r = conn->m_data.r;
+
+    if (m_timeout) {
+        log_error(LogLevel::debug, "(%s: %d) client timed out\n", __FILE__, __LINE__);
+        conn->m_timedout = true;
+        conn->close_http_request(REQUEST_TIME_OUT);
+        return;
+    }
+    
+    for (Int rc = AGAIN; ; ) {
+
+        if (rc == AGAIN) {
+            ssize_t n = r->read_request_header();
+            if (n == AGAIN || n == ERROR) {
+                break;
+            }
+        }
+
+        rc = r->parse_request_line();
+
+        if (rc == OK) {
+            
+            r->m_request_line.m_len     = r->m_request_end - r->m_request_start;
+            r->m_request_line.m_data    = r->m_request_start;
+            r->m_request_length         = r->m_header_in_buffer->m_pos - r->m_request_start;
+
+            r->m_method_name.m_len = r->m_method_end - r->m_request_start/* + 1 */;
+            r->m_method_name.m_data = r->m_request_line.m_data;
+
+            /* HTTP 09 没有以下部分 */
+            if (r->m_http_protocol_start) {
+                r->m_http_protocol.m_data = r->m_http_protocol_start;
+                r->m_http_protocol.m_len = r->m_request_end - r->m_http_protocol_start;
+            }
+
+            if (r->process_request_uri() != OK) {
+                break;
+            }
+
+            set_event_handler(&Event::process_http_request_headers_handler);
+            run_event_handler();
+            break;
+        }
+
+        if (rc != AGAIN) {
+            if (rc == PARSE_INVALID_VERSION) {
+                conn->finalize_http_request(r, VERSION_NOT_SUPPORTED);
+
+            } else {
+                conn->finalize_http_request(r, BAD_REQUEST);
+            }
+
+            break;
+        }
+
+        /* NGX_AGAIN: a request line parsing is still incomplete */
+        if (r->need_alloc_large_header_buffer()) {
+            Int rv = r->alloc_large_header_buffer(true);
+
+            if (rv == ERROR) {
+                conn->finalize_http_request(r, INTERNAL_SERVER_ERROR);
+                break;
+            }
+
+            if (rv == DECLINED) {
+                r->m_request_line.m_len = r->m_header_in_buffer->m_end - r->m_request_start;
+                r->m_request_line.m_data = r->m_request_start;
+                conn->finalize_http_request(r, REQUEST_URI_TOO_LARGE);
+                break;
+            }
+        }   
+    }
+
+    conn->run_posted_http_requests();
+}

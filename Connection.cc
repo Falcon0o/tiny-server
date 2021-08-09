@@ -6,7 +6,7 @@
 #include "Epoller.h"
 #include "HttpConnection.h"
 #include "HttpRequest.h"
-
+#include "IOVector.h"
 #include "Timer.h"
 
 
@@ -54,8 +54,8 @@ void Connection::finalize_http_connection()
         return;
     }
 
-    if (HTTP_LINGERING_ALWAYS 
-        || (HTTP_LINGERING_ON
+    if (HTTP_LINGERING == HTTP_LINGERING_ALWAYS
+        || (HTTP_LINGERING == HTTP_LINGERING_ON
             && (m_data.r->m_lingering_close
                 || m_data.r->m_header_in_buffer->m_pos < m_data.r->m_header_in_buffer->m_last
                 || m_read_event->m_ready))) 
@@ -262,135 +262,138 @@ HttpRequest *Connection::create_http_request(){
     return r;
 }
 
-// BufferChain *Connection::sendfile_chain(BufferChain *in, off_t limit)
-// { // ngx_linux_sendfile_chain
-//     int pagesize = Cycle::singleton()->getpagesize();
+BufferChain *Connection::sendfile_from_buffer_chain(BufferChain *in, off_t limit)
+{ // ngx_linux_sendfile_chain
 
-//     if (!m_wev->ready()) {
-//         // 不可写
-//         return in;
-//     }
+    if (!m_write_event->m_ready) {
+        // 不可写
+        return in;
+    }
 
-
-//     if (limit == 0 || limit > static_cast<off_t>(MAX_SENDFILE_SIZE - pagesize))
-//     {
-//         limit = MAX_SENDFILE_SIZE - pagesize;
-//     }
+    if (limit == 0 || limit > static_cast<off_t>(MAX_SENDFILE_SIZE - g_pagesize))
+    {
+        limit = MAX_SENDFILE_SIZE - g_pagesize;
+    }
 
 
-//     iovec headers[IOVS_PREALLOCATE];
-//     IOVector io_vector(headers, IOVS_PREALLOCATE);
+    iovec headers[IOVS_PREALLOCATE];
+    IOVector io_vector(headers, IOVS_PREALLOCATE);
 
-//     off_t aim_send = 0, prev_aim_send;
-//     size_t real_sent = 0;
+    off_t aim_sent = 0, prev_aim_sent;
 
-//     for ( ;; ) {
+    for ( ;; ) {
+        size_t real_sent = 0;
 
-//         prev_aim_send = aim_send;
-//         BufferChain *chain_last = io_vector.fill_with_output_chain(*in, limit - aim_send);
+        prev_aim_sent = aim_sent;
+        BufferChain *chain_last = io_vector.fill_with_output_chain(*in, limit - prev_aim_sent);
 
-//         if (chain_last == ERROR_ADDR(BufferChain)) {
-//             return chain_last;
-//         }
+        if (chain_last == ERROR_ADDR(BufferChain)) {
+            return chain_last;
+        }
 
-//         aim_send += io_vector.total_length();
+        aim_sent += io_vector.total_length();
 
-//         if (tcp_nopush() == UNSET 
-//             && io_vector.size() != 0                            /* 内存中含有数据 */
-//             && chain_last && chain_last->buffer()->in_file())   /* 最后一个未处理的缓冲区在文件中 */
-//         {
-//             /* 应该关闭nodelay，即启用nagle算法， 尝试将 m_tcp_nodelay 设置为UNSET，
-//              * 将 tcp_nopush 设置为 SET */
-//             if (tcp_nodelay() == ON) { 
-//                 int on = 0;
-//                 if (setsockopt(m_fd, IPPROTO_TCP, TCP_NODELAY,
-//                         &on, sizeof(int)) == -1) 
-//                 {
-//                     int err = errno;
-//                     /*
-//                      * there is a tiny chance to be interrupted, however,
-//                      * we continue a processing with the TCP_NODELAY
-//                      * and without the TCP_CORK
-//                      */
-//                     if (err != EINTR) {
-//                         m_wev->set_err(true);
-//                         return ERROR_ADDR(BufferChain);
-//                     }
+        if (m_tcp_nopush == TCP_NOPUSH_UNSET 
+            && io_vector.size() != 0                            /* 内存中含有数据 */
+            && chain_last 
+            && chain_last->m_buffer->m_in_file)                 /* 最后一个未处理的缓冲区在文件中 */
+        {
+            /* 应该关闭nodelay，即启用nagle算法， 尝试将 m_tcp_nodelay 设置为UNSET，
+             * 将 tcp_nopush 设置为 SET */
+            if (m_tcp_nodelay == TCP_NODELAY_SET) { 
+                int on = 0;
+                if (setsockopt(m_fd, IPPROTO_TCP, TCP_NODELAY,
+                        &on, sizeof(int)) == -1) 
+                {
+                    int err = errno;
+                    /*
+                     * there is a tiny chance to be interrupted, however,
+                     * we continue a processing with the TCP_NODELAY
+                     * and without the TCP_CORK
+                     */
+                    if (err != EINTR) {
+                        log_error(LogLevel::alert, "(%s: %d) setsockopt(!TCP_NODELAY) 失败\n", 
+                                    __FILE__, __LINE__);
+                        m_write_event->m_err = true;
+                        return ERROR_ADDR(BufferChain);
+                    }
 
-//                 } else {
-//                     m_tcp_nodelay = UNSET;
-//                 }
-//             }
+                } else {
+                    m_tcp_nodelay = TCP_NODELAY_UNSET;
+                }
+            }
             
-//             if (m_tcp_nodelay == UNSET) {
-//                 int on = 1;
-//                 if (setsockopt(m_fd, IPPROTO_TCP, TCP_CORK,
-//                         &on, sizeof(int)) == -1) 
-//                 {
-//                     int err = errno;
-//                     if (err != EINTR) {
-//                         m_wev->set_err(true);
-//                         return ERROR_ADDR(BufferChain);
-//                     }
+            if (m_tcp_nodelay == TCP_NODELAY_UNSET) {
+                int on = 1;
+                if (setsockopt(m_fd, IPPROTO_TCP, TCP_CORK,
+                        &on, sizeof(int)) == -1) 
+                {
+                    int err = errno;
+                    if (err != EINTR) {
+                        log_error(LogLevel::alert, "(%s: %d) setsockopt(TCP_CORK) 失败\n", 
+                                    __FILE__, __LINE__);
+                        m_write_event->m_err = true;
+                        return ERROR_ADDR(BufferChain);
+                    }
 
-//                 } else {
-//                     m_tcp_nopush = ON;
-//                 } 
-//             }
-//         }
+                } else {
+                    m_tcp_nopush = TCP_NOPUSH_SET;
+                } 
+            }
+        }
 
-//         ssize_t n;
-//         if (io_vector.size() == 0 && chain_last && chain_last->buffer()->in_file() && aim_send < limit) 
-//         {
-//             Buffer *buf = chain_last->buffer();
-//             /* 没有内存中的内容，纯文件，*/
-//             off_t file_size;
-//             chain_last = chain_last->coalesce_file(limit - aim_send, file_size);
+        ssize_t n;
+        if (io_vector.size() == 0 && chain_last && chain_last->m_buffer->m_in_file && aim_sent < limit) 
+        {
+            Buffer *buf = chain_last->m_buffer;
+            /* 没有内存中的内容，纯文件，*/
+            off_t file_size;
+            chain_last = chain_last->coalesce_file(limit - aim_sent, file_size);
 
-//             aim_send += file_size;
+            aim_sent += file_size;
 
-//             if (file_size == 0) {
-//                 debug_point();
-//                 return ERROR_ADDR(BufferChain);
-//             }
+            if (file_size == 0) {
+                debug_point();
+                return ERROR_ADDR(BufferChain);
+            }
 
-//             n = sendfile_from_buffer(buf, file_size);
+            n = sendfile_from_buffer(buf, file_size);
 
-//             if (n == RC_ERROR) {
-//                 return ERROR_ADDR(BufferChain);
-//             }
+            if (n == ERROR) {
+                return ERROR_ADDR(BufferChain);
+            }
 
-//             // if (n == NGX_DONE) {
-//             real_sent = (n == RC_AGAIN) ? 0 : n;
-        
-//         } else {
-//             n = write_from_iovec(&io_vector);
-//             if (n == RC_ERROR) {
-//                 return ERROR_ADDR(BufferChain);
-//             }
-//             real_sent = (n == RC_AGAIN) ? 0 : n;
-//         }
+            // if (n == NGX_DONE) {
+            real_sent = (n == AGAIN) ? 0 : n;
 
-//         if (n == RC_AGAIN) {
-//             m_wev->set_ready(false);
-//             return in;
-//         }
+        } else {
+            n = write_from_iovec(&io_vector);
+            if (n == ERROR) {
+                return ERROR_ADDR(BufferChain);
+            }
+            real_sent = (n == AGAIN) ? 0 : n;
+        }
 
+        m_sent += real_sent;
 
-//         if (in) {
-//             in = in->update_sent(real_sent);
-//         }
-        
+        if (in) {
+            in = in->update_sent(real_sent);
+        }
 
-//         if ((size_t)(aim_send - prev_aim_send) != real_sent) {
-//             aim_send = prev_aim_send + real_sent;
-//             continue;
-//         }
-//         if (aim_send >= limit || in == nullptr) {
-//             return in;
-//         }
-//     }
-// }
+        if (n == AGAIN) {
+            m_write_event->m_ready = false;
+            return in;
+        }
+
+        if ((size_t)(aim_sent - prev_aim_sent) != real_sent) {
+            aim_sent = prev_aim_sent + real_sent;
+            continue;
+        }
+        if (aim_sent >= limit || in == nullptr) {
+            return in;
+        }
+    }
+}
 
 void Connection::close_http_request(Int rc) // ngx_http_close_request
 {
@@ -702,7 +705,7 @@ void Connection::set_http_keepalive()
     }
     
     int tcp_nodelay;
-    if (m_tcp_nopush == SET) {
+    if (m_tcp_nopush == TCP_NOPUSH_SET) {
         int cork = 0;
         if (setsockopt(m_fd, IPPROTO_TCP, TCP_CORK,
                         &cork, sizeof(int)) == -1)
@@ -713,7 +716,7 @@ void Connection::set_http_keepalive()
             return;
         }
 
-        m_tcp_nopush = UNSET;
+        m_tcp_nopush = TCP_NOPUSH_UNSET;
         tcp_nodelay = 1;
     
     } else {
@@ -721,7 +724,7 @@ void Connection::set_http_keepalive()
     }
 
     if (tcp_nodelay) {
-        if (m_tcp_nodelay == UNSET) {
+        if (m_tcp_nodelay == TCP_NODELAY_UNSET) {
             if (setsockopt(m_fd, IPPROTO_TCP, TCP_NODELAY,
                             &tcp_nodelay, sizeof(int)) == -1)
             {
@@ -731,7 +734,7 @@ void Connection::set_http_keepalive()
                 return;
             }
 
-            m_tcp_nodelay = SET;
+            m_tcp_nodelay = TCP_NODELAY_SET;
         }
     }
 
@@ -743,4 +746,111 @@ void Connection::set_http_keepalive()
         g_epoller->add_posted_event(m_read_event);
     }
 
+}
+
+void Connection::set_http_lingering_close()
+{
+    if (m_data.r->m_lingering_time == 0) {
+        m_data.r->m_lingering_time = 
+                g_timer->cached_time_sec() + (time_t)(HTTP_LINGERING_TIME / 1000);
+    }
+
+    m_read_event->set_event_handler(&Event::http_lingering_close_handler);
+    if (!m_read_event->m_active && !m_read_event->m_ready) {
+        if (g_epoller->add_read_event(m_read_event, EPOLLET) != OK) {
+            close_http_request(0);
+            return;
+        }
+    }
+
+    m_write_event->set_event_handler(&Event::empty_handler);
+    if (m_write_event->m_active) {
+        if (g_epoller->del_write_event(m_write_event, false) != OK) {
+            close_http_request(0);
+            return;
+        }
+    }
+
+    if (shutdown(m_fd, SHUT_WR) == -1) {
+        log_error(LogLevel::alert, "(%s: %d) shutdown(SHUT_WR) 失败\n", __FILE__, __LINE__);
+        close_http_request(0);
+        return;
+    }
+
+    m_close = false;
+    g_cycle->reusable_connection(this, true);
+
+    g_epoller->add_timer(m_read_event, HTTP_LINGERING_TIMEOUT);
+
+    if (m_read_event->m_ready) {
+        m_read_event->run_event_handler();
+    }
+}
+
+ssize_t Connection::sendfile_from_buffer(Buffer *buf, size_t size)
+{
+    ssize_t n;
+    off_t offset = buf->m_file_pos;
+
+    eintr:
+    n = sendfile(m_fd, buf->fd(), &offset, size);
+    
+    if (n == -1)
+    {   
+        int err = errno;
+        switch (err) 
+        {
+        case EAGAIN:
+            log_error(LogLevel::info, "(%s: %d) sendfile() is not ready\n", __FILE__, __LINE__);
+            return AGAIN;
+        
+        case EINTR:
+            log_error(LogLevel::info, "(%s: %d) sendfile() is interrupted\n", __FILE__, __LINE__);
+            goto eintr;
+
+        default:
+            m_write_event->m_err = true;
+            log_error(LogLevel::info, "(%s: %d) sendfile() failed\n", __FILE__, __LINE__);
+            return ERROR;
+        }
+    }
+
+    if (n == 0) {
+        /*
+         * if sendfile returns zero, then someone has truncated the file,
+         * so the offset became beyond the end of the file
+         */
+        log_error(LogLevel::info, "(%s: %d) sendfile() failed, file was truncated\n", __FILE__, __LINE__);
+        return ERROR;
+    }
+    return n;
+}
+
+ssize_t Connection::write_from_iovec(IOVector *iov)
+{
+    ssize_t n;
+    eintr:
+
+    n = writev(m_fd, iov->data(), iov->size());
+
+    if (n == -1)
+    {   
+        int err = errno;
+        switch (err) 
+        {
+        case EAGAIN:
+            log_error(LogLevel::info, "(%s: %d)\n", __FILE__, __LINE__);
+            return AGAIN;
+        
+        case EINTR:
+            log_error(LogLevel::info, "(%s: %d)\n", __FILE__, __LINE__);
+            goto eintr;
+
+        default: 
+            m_write_event->m_err = true;
+            log_error(LogLevel::info, "(%s: %d) writev() failed\n", __FILE__, __LINE__);
+            return ERROR;
+        }
+    }
+    return n;
 }

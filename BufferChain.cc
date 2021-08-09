@@ -6,85 +6,84 @@
 #include "Cycle.h"
 
 
-// BufferChain *BufferChain::coalesce_file(off_t limit, off_t &total)
-// {
-//     int pagesize = Cycle::singleton()->getpagesize();
+BufferChain *BufferChain::coalesce_file(off_t limit, off_t &total)
+{
     
-//     total = 0;
+    total = 0;
 
-//     off_t prev_last;
-//     BufferChain *curr_chain = this;
-//     do {
-//         Buffer *curr_buf = curr_chain->buffer();
+    off_t prev_last;
+    BufferChain *curr_chain = this;
+    do {
+        Buffer *curr_buf = curr_chain->m_buffer;
 
-//         off_t size = curr_buf->file_size();
+        off_t size = curr_buf->m_file_last - curr_buf->m_file_pos;
 
-//         if (size > limit - total) {
-//             size = limit - total;
+        if (size > limit - total) {
+            size = limit - total;
             
-//             off_t aligned = (curr_buf->file_pos() + size + pagesize - 1) 
-//                 & ~((off_t)pagesize - 1);
+            off_t aligned = (curr_buf->m_file_pos + size + g_pagesize - 1) 
+                & ~((off_t)g_pagesize - 1);
             
-//             if (aligned < curr_buf->file_last()) {
-//                 size = aligned - curr_buf->file_pos();
-//             }
+            if (aligned < curr_buf->m_file_last) {
+                size = aligned - curr_buf->m_file_pos;
+            }
 
-//             total += size;
-//             break;
-//         }
+            total += size;
+            break;
+        }
 
-//         total += size;
-//         prev_last = curr_buf->file_last();
-//         curr_chain = curr_chain->next();
+        total += size;
+        prev_last = curr_buf->m_file_last;
+        curr_chain = curr_chain->m_next;
 
-//     } while(curr_chain 
-//             && curr_chain->buffer()->in_file()
-//             && total < limit
-//             && m_buffer->get_fd() == curr_chain->buffer()->get_fd());
+    } while(curr_chain 
+            && curr_chain->m_buffer->m_in_file
+            && total < limit
+            && m_buffer->fd() == curr_chain->m_buffer->fd());
     
-//     return curr_chain;
-// }
+    return curr_chain;
+}
 
-// BufferChain *BufferChain::update_sent(size_t sent)
-// {
-//     BufferChain *in = this;
+BufferChain *BufferChain::update_sent(size_t sent)
+{
+    BufferChain *in = this;
     
-//     for ( ; in; in = in->next()) {
+    for ( ; in; in = in->m_next) {
 
-//         if (in->buffer()->special()) {
-//             continue;
-//         }
+        if (in->m_buffer->special()) {
+            continue;
+        }
 
-//         if (sent == 0) {
-//             break;
-//         }
+        if (sent == 0) {
+            break;
+        }
 
-//         off_t size = in->buffer()->size();
+        off_t size = in->m_buffer->size();
 
-//         if (sent >= size) {
-//             sent -= size;
+        if (sent >= size) {
+            sent -= size;
 
-//             if (in->buffer()->in_memory()) {
-//                 in->buffer()->set_pos(in->buffer()->last());
-//             }
+            if (in->m_buffer->in_memory()) {
+                in->m_buffer->m_pos = in->m_buffer->m_last;
+            }
 
-//             if (in->buffer()->in_file()) {
-//                 in->buffer()->set_file_pos(in->buffer()->file_last());
-//             }
+            if (in->m_buffer->m_in_file) {
+                in->m_buffer->m_file_pos = in->m_buffer->m_file_last;
+            }
 
-//             continue;
-//         }
+            continue;
+        }
 
-//         /* else if (sent < size) */
-//         if (in->buffer()->in_memory()) {
-//             in->buffer()->set_pos(in->buffer()->pos() + sent);
-//         }
+        /* else if (sent < size) */
+        if (in->m_buffer->in_memory()) {
+            in->m_buffer->m_pos += sent;
+        }
 
-//         if (in->buffer()->in_file()) {
-//             in->buffer()->set_file_pos(in->buffer()->file_pos() + sent);
-//         }
-//         break;
-//     }
+        if (in->m_buffer->m_in_file) {
+            in->m_buffer->m_file_pos += sent;
+        }
+        break;
+    }
 
-//     return in;
-// }
+    return in;
+}

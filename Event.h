@@ -2,7 +2,7 @@
 #define _EVENT_H_INCLUDED_
 
 #include "Config.h"
-
+class Connection;
 class Event 
 {
 public: 
@@ -46,6 +46,11 @@ public:
     void    http_request_handler();
     void    empty_handler();
     void    http_keepalive_handler();// ngx_http_keepalive_handler
+    void    http_lingering_close_handler(); // ngx_http_lingering_close_handler
+
+    Connection *get_connection() const {
+        return static_cast<Connection*>(m_data);
+    }
 private:
     std::function<void()> m_handler;
 };

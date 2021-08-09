@@ -4,10 +4,24 @@
 #include "Config.h"
 #include "Pool.h"
 class Buffer;
+class BufferChain;
 class Event;
 class Listening;
 class HttpRequest;
 class HttpConnection;
+class IOVector;
+
+enum {
+    TCP_NODELAY_UNSET = 0,
+    TCP_NODELAY_SET,
+    TCP_NODELAY_DISABLED
+};
+
+enum {
+    TCP_NOPUSH_UNSET = 0,
+    TCP_NOPUSH_SET,
+    TCP_NOPUSH_DISABLED
+};
 
 class Connection {
 public:
@@ -32,7 +46,9 @@ public:
 
     /*返回值为 AGAIN 时，buffer 中未读取任何数据 */
     ssize_t recv_to_buffer(Buffer *b);
-
+    BufferChain *sendfile_from_buffer_chain(BufferChain *in, off_t limit);
+    ssize_t sendfile_from_buffer(Buffer *buf, size_t size);
+    ssize_t write_from_iovec(IOVector *iov);
     union {
         HttpConnection  *hc;
         Connection      *c;

@@ -16,7 +16,13 @@ class HttpConnection;
 class HttpRequest {
 public:
     ssize_t     read_request_header();
+
+#define     PARSE_INVALID_METHOD        10
+#define     PARSE_INVALID_REQUEST       11
+#define     PARSE_INVALID_VERSION       12
+
     Int         parse_request_line();
+    Int         parse_method();
     Int         process_request_uri();
 
 
@@ -27,11 +33,11 @@ public:
 
     Int post_http_request();// ngx_http_post_request
     enum class Method{
-        UNKNOWN,
+        UNKNOWN = 0,
         GET,
         HEAD,
-        POST
-    };
+        POST}                    m_method;
+
     HttpConnection              *m_http_connection;
     Connection                  *m_connection;
     Buffer                      *m_header_in_buffer;
@@ -40,9 +46,12 @@ public:
     
     time_t                       m_start_sec;
     mSec                         m_start_msec;
-    Method                       m_method;
-    uInt                         m_http_version;
+    time_t                       m_lingering_time;
 
+    uInt                         m_http_version;
+    unsigned                     m_http_major:16;
+    unsigned                     m_http_minor:16;
+    
     HttpHeadersIn                m_header_in;
     HttpHeadersOut               m_header_out;
 
@@ -51,6 +60,7 @@ public:
     u_char                      *m_method_end;
     u_char                      *m_uri_start;
     u_char                      *m_uri_end;
+    u_char                      *m_uri_ext;
     u_char                      *m_http_protocol_start;
 
     u_char                      *m_header_name_start;
@@ -63,7 +73,7 @@ public:
     StringSlice                  m_request_line;
     StringSlice                  m_method_name;
     StringSlice                  m_http_protocol;
-    
+
     /* 和子请求相关，无子请求计数应为 1 */ 
     size_t                       m_count:16;
     /* 和子请求相关，默认值为 0 */ 
@@ -76,6 +86,8 @@ public:
     unsigned                     m_done:1;
     unsigned                     m_keepalive:1;
     unsigned                     m_lingering_close:1;
+
+    unsigned                     m_space_in_uri:1;
     unsigned                     m_buffered:4;
     
     unsigned                     m_blocked:8;

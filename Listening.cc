@@ -10,7 +10,7 @@ Listening::Listening(in_port_t port)
     m_reuseport(true),
     m_ipv6only(false),
     m_listening(false),
-    m_keepalive(UNSET),
+    m_keepalive(TCP_KEEPALIVE_ON),
     m_deferred_accept(true),
     m_rcvbuf(-1),
     m_sndbuf(-1),
@@ -151,7 +151,7 @@ Int Listening::open_listening_socket()
     }
 
     if (m_keepalive) {
-        onoff = m_keepalive == SET? 1: 0;
+        onoff = m_keepalive == TCP_KEEPALIVE_ON? 1: 0;
         
         if (setsockopt(m_fd, SOL_SOCKET, SO_KEEPALIVE,
                                 &onoff, sizeof(onoff)) == -1)

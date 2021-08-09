@@ -9,14 +9,14 @@
 
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
+#include <sys/sendfile.h>
 #include <sys/signal.h>
 #include <sys/time.h>
-#include <sys/types.h>
-
+#include <sys/uio.h>
 #include <time.h>
 
 #include <unistd.h>
-#include <stdint.h>
+
 
 #include <list>
 #include <set>
@@ -27,10 +27,6 @@
 
 #include "Setting.h"
 
-using Int       = intptr_t;
-using uInt      = uintptr_t;
-
-using mSec      = uInt;
 
 extern class Cycle      *g_cycle;
 extern class Process    *g_process;
@@ -41,13 +37,22 @@ extern int               g_pagesize;
 extern mSec              g_curr_msec;
 extern class Timer      *g_timer;
 
+enum class LogLevel {
+    alert = 2, 
+    crit = 3,
+    error, warning, info, debug
+};
+
 #define log_error(level, log, ...)      printf(log, __VA_ARGS__); fflush(stdout);
 #define log_error0(level, log)          printf(log); fflush(stdout);
 
+extern const void *ERROR_ADDR_token;
+#define ERROR_ADDR(type)  reinterpret_cast<type*>(const_cast<void*>(ERROR_ADDR_token))
 
-#define     UNSET       0
-#define     SET         1
-#define     DISABLE     2
+extern const void *DECLINED_ADDR_token;
+#define DECLINED_ADDR(type)  reinterpret_cast<type*>(const_cast<void*>(DECLINED_ADDR_token))
+
+
 
 #define     DECLINED    -5
 #define     DONE        -4
@@ -80,4 +85,12 @@ extern class Timer      *g_timer;
 #define     INTERNAL_SERVER_ERROR       500
 #define     VERSION_NOT_SUPPORTED       505
 
+void debug_point();
+
+#define     LF     (u_char) '\n'
+#define     CR     (u_char) '\r'
+#define     CRLF   "\r\n"
+
+unsigned hash(size_t key, u_char c);
+unsigned hash_string(const char *c);
 #endif

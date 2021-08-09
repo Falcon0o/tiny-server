@@ -24,6 +24,11 @@ public:
     unsigned int                m_reuseport:1;
     unsigned int                m_ipv6only:1;
     unsigned int                m_listening:1;
+    enum {
+        TCP_KEEPALIVE_UNSET = 0,
+        TCP_KEEPALIVE_ON,
+        TCP_KEEPALIVE_OFF,
+    };
     unsigned int                m_keepalive:2;
     unsigned int                m_deferred_accept:1;
     // unsigned int             add_deferred_:1;

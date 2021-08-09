@@ -5,9 +5,13 @@
 #include "Connection.h"
 
 class Pool;
+class File;
 class Buffer {
 public:
     static Buffer *create_temp_buffer(Pool *pool, size_t size);
+    static Buffer *create_file_buffer(Pool *pool, size_t size);
+
+    Buffer() {} 
 
     bool in_memory() const { 
         return m_memory || m_temporary || m_mmap; 
@@ -20,6 +24,9 @@ public:
     bool special() const {
         return (m_flush || m_last_buf || m_sync) && !in_memory() && !m_in_file; }
 
+    off_t size() {return m_in_file ? m_file_last - m_file_pos : m_last - m_pos; }
+
+    int fd() const;
     u_char                      *m_start;     
     u_char                      *m_end;
     u_char                      *m_last;
@@ -37,8 +44,7 @@ public:
     unsigned                     m_last_buf_in_chain:1;
     unsigned                     m_sync:1;
 private:
-    Buffer() {} 
-    ~Buffer() {}   
+    File                        *m_file;
 };
 
 #endif

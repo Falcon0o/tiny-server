@@ -1,6 +1,8 @@
 #include "Buffer.h"
 
 #include "Connection.h"
+#include "File.h"
+
 #include "Pool.h"
 
 Buffer *Buffer::create_temp_buffer(Pool *pool, size_t size)
@@ -27,4 +29,9 @@ Buffer *Buffer::create_temp_buffer(Pool *pool, size_t size)
 
     buf->m_temporary = true;
     return buf;
+}
+
+int Buffer::fd() const
+{
+    return m_file->m_fd;
 }

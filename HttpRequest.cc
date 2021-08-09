@@ -127,3 +127,382 @@ Int HttpRequest::post_http_request()
     m_posted = true;
     return OK;
 }
+
+ssize_t HttpRequest::read_request_header()
+{
+    ssize_t can_read_ssize = m_header_in_buffer->m_last - m_header_in_buffer->m_pos;
+    
+    if (can_read_ssize > 0) {
+        return can_read_ssize;
+    }
+    
+    Event *rev = m_connection->m_read_event;
+    if (rev->m_ready) {
+        can_read_ssize = m_connection->recv_to_buffer(m_header_in_buffer);
+    
+    } else {
+        can_read_ssize = AGAIN;
+    }
+
+    if (can_read_ssize == AGAIN) {
+        if (!rev->m_timer_set) {
+            g_epoller->add_timer(rev, CLIENT_HEADER_TIMEOUT);
+        }
+
+        if (!rev->m_active && !rev->m_ready) {
+            if (g_epoller->add_read_event(rev, EPOLLET) == ERROR) {
+                m_connection->close_http_request(INTERNAL_SERVER_ERROR);
+                return ERROR;
+            }
+        }
+
+        return AGAIN;
+    }
+
+    if (can_read_ssize == 0) {
+        log_error(LogLevel::alert, "client prematurely closed connection (%s: %d)\n", __FILE__, __LINE__);
+    }
+
+    if (can_read_ssize == 0 || can_read_ssize == ERROR) {
+        m_connection->m_error = true;
+        m_connection->finalize_http_request(this, BAD_REQUEST);
+        return ERROR;
+    }
+
+    m_header_in_buffer->m_last += can_read_ssize;
+    return can_read_ssize;
+}
+
+
+static unsigned usual[] = {
+    0xffffdbfe, /* 1111 1111 1111 1111  1101 1011 1111 1110 */
+                /* ?>=< ;:98 7654 3210  /.-, +*)( '&%$ #"!  */
+
+    0x7fff37d6, /* 0111 1111 1111 1111  0011 0111 1101 0110 */
+                /* _^]\ [ZYX WVUT SRQP  ONML KJIH GFED CBA@ */
+
+    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
+                /*  ~}| {zyx wvut srqp  onml kjih gfed cba` */
+
+    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
+    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
+    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
+    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
+    0xffffffff  /* 1111 1111 1111 1111  1111 1111 1111 1111 */
+};
+
+static bool is_usual(unsigned char c)
+{
+    return usual[c >> 5] & (1U << (c & 0x1f));
+}
+
+Int HttpRequest::parse_request_line()
+{
+    enum class ParseState{
+        start = 0,
+        method,
+        spaces_before_uri,
+        after_slash_in_uri,
+        check_uri,
+        check_uri_http_09,
+        http_H,
+        http_HT,
+        http_HTT,
+        http_HTTP,
+        first_major_digit, 
+        major_digit,
+        first_minor_digit,
+        minor_digit,
+        spaces_after_digit,
+        almost_done
+    };
+
+    ParseState parse_state = static_cast<ParseState>(m_parse_state);
+
+    u_char *pos = m_header_in_buffer->m_pos;
+
+    for ( ; pos < m_header_in_buffer->m_last; ++pos)
+    {
+        u_char downcast;
+        switch (parse_state) {
+        
+        case ParseState::start:
+            m_request_start = pos;
+
+            if (*pos == CR || *pos == LF) {
+                break;
+            }
+
+            if ((*pos < 'A' || *pos > 'Z') && *pos != '_' && *pos != '-') {
+                return PARSE_INVALID_METHOD;
+            }
+
+            parse_state = ParseState::method;
+            break;
+
+        case ParseState::method:
+            if (*pos == ' ') {
+                m_method_end = pos;
+
+                Int rc = parse_method();
+                if (rc != OK) {
+                    return rc;
+                }
+
+                parse_state = ParseState::spaces_before_uri;
+                break;
+            }
+
+            if ((*pos < 'A' || *pos > 'Z') && *pos != '_' && *pos != '-') {
+                return PARSE_INVALID_METHOD;
+            }
+
+            break;
+
+        case ParseState::spaces_before_uri:
+            if (*pos == '/') {
+                m_uri_start = pos;
+                parse_state = ParseState::after_slash_in_uri;
+                break;
+            }
+
+            switch (*pos) 
+            {
+            case ' ':
+                break;
+            default:
+                return PARSE_INVALID_REQUEST;
+            }
+            break;
+
+        case ParseState::after_slash_in_uri:
+            if (is_usual(*pos)) {
+                parse_state = ParseState::check_uri;
+                break;
+            }
+
+            switch (*pos){
+            case ' ':
+                m_uri_end = pos;
+                parse_state = ParseState::check_uri_http_09;
+                break;
+            default:
+                log_error(1, "暂不支持的协议版本 (%s: %d)", __FILE__, __LINE__);
+                return PARSE_INVALID_VERSION;
+            }
+            break;
+
+        case ParseState::check_uri:
+            if (is_usual(*pos)) {
+                parse_state = ParseState::check_uri;
+                break;
+            }
+
+            switch (*pos)
+            {
+            case '/':
+                m_uri_ext = nullptr;
+                parse_state = ParseState::after_slash_in_uri;
+                break;
+            case '.':
+                m_uri_ext = pos + 1;
+                break;
+            case ' ':
+                m_uri_end = pos;
+                parse_state = ParseState::check_uri_http_09;
+                break;
+
+            default:
+                return PARSE_INVALID_REQUEST;
+            }
+            break;
+
+        case ParseState::check_uri_http_09:
+            switch (*pos) {
+            case ' ':
+                break;
+            case CR:
+            case LF:
+                log_error(1, "暂不支持的协议版本 (%s: %d)", __FILE__, __LINE__);
+                return PARSE_INVALID_VERSION;
+            case 'H':
+                m_http_protocol_start = pos;
+                parse_state = ParseState::http_H;
+                break;
+            default:
+                m_space_in_uri = true;
+                parse_state = ParseState::check_uri;
+                --pos;
+            }
+            break;
+
+        case ParseState::http_H:
+            switch (*pos)
+            {
+            case 'T':
+                parse_state = ParseState::http_HT;
+                break;
+            default:
+                return PARSE_INVALID_REQUEST;
+            }
+            break;
+
+        case ParseState::http_HT:
+            switch (*pos)
+            {
+            case 'T':
+                parse_state = ParseState::http_HTT;
+                break;
+            default:
+                return PARSE_INVALID_REQUEST;
+            }
+            break;
+
+        case ParseState::http_HTT:
+            switch (*pos)
+            {
+            case 'P':
+                parse_state = ParseState::http_HTTP;
+                break;
+            default:
+                return PARSE_INVALID_REQUEST;
+            }
+            break;
+    
+        case ParseState::http_HTTP:
+            switch (*pos)
+            {
+            case '/':
+                parse_state = ParseState::first_major_digit;
+                break;
+            default:
+                return PARSE_INVALID_REQUEST;
+            }
+            break;
+
+        case ParseState::first_major_digit:
+            if (*pos < '1' || *pos > '9') {
+                return PARSE_INVALID_REQUEST;
+            }
+
+            m_http_major = *pos - '0';
+            if (m_http_major > 1) {
+                return PARSE_INVALID_VERSION;
+            }
+            
+            parse_state = ParseState::major_digit;
+            break;
+        
+        case ParseState::major_digit:
+            if (*pos == '.') {
+                parse_state = ParseState::first_minor_digit;
+                break;
+            }
+
+            if (*pos < '0' || *pos > '9') {
+                return PARSE_INVALID_REQUEST;
+            }
+
+            m_http_major = m_http_major * 10 + (*pos - '0');
+            
+            if (m_http_major > 1) {
+                return PARSE_INVALID_VERSION;
+            }
+            break;
+
+        case ParseState::first_minor_digit:
+            if (*pos < '0' || *pos > '9') {
+                return PARSE_INVALID_REQUEST;
+            }
+
+            m_http_minor = *pos - '0';
+            parse_state = ParseState::minor_digit;
+            break;
+
+        case ParseState::minor_digit:
+            if (*pos == CR) {
+                parse_state = ParseState::almost_done;
+                break; 
+            }
+
+            if (*pos == LF) {
+                goto done;
+            }
+
+            if (*pos == ' ') {
+                parse_state = ParseState::spaces_after_digit;
+                break;
+            }
+
+            if (*pos < '0' || *pos > '9') {
+                return PARSE_INVALID_REQUEST;
+            }
+
+            if (m_http_minor > 99) {
+                return PARSE_INVALID_REQUEST;
+            }
+
+            m_http_minor = m_http_minor * 10 + (*pos - '0');
+            break;
+
+        case ParseState::spaces_after_digit:
+            switch (*pos) {
+            case ' ':
+                break;
+            case CR:
+                parse_state = ParseState::almost_done;
+                break; 
+            case LF:
+                goto done;
+            default:
+                return PARSE_INVALID_REQUEST;
+            }
+            break;
+
+        case ParseState::almost_done: 
+            // *(pos - 1) = CR 
+            m_request_end = pos - 1;
+            switch (*pos)
+            {
+            case LF:
+                goto done;
+            default:
+                return PARSE_INVALID_REQUEST;
+            }
+        }
+    }
+
+    m_header_in_buffer->m_pos = pos;
+    m_parse_state = static_cast<uInt>(parse_state);
+
+    return AGAIN;
+
+done:
+    m_header_in_buffer->m_pos = pos + 1;
+    if (m_request_end == nullptr) {
+        m_request_end = pos; /* LF 的位置*/
+    }
+
+    m_http_version = m_http_major * 1000 + m_http_minor;
+    m_parse_state = 0;
+
+    return OK;
+}
+
+Int HttpRequest::parse_method()
+{
+    /* 小端法 */
+    unsigned int m = *reinterpret_cast<unsigned int*>(m_request_start);
+    switch (m_method_end - m_request_start) {
+
+    case 3:
+        if (m == ('G' | ('E' << 8) | ('T' << 16) | (' ' << 24)) )
+        {
+            m_method = Method::GET;
+            return OK; 
+        }
+        break;
+    }
+    return PARSE_INVALID_METHOD;
+}
+
