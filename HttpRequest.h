@@ -15,16 +15,22 @@ class HttpConnection;
 
 class HttpRequest {
 public:
+    HttpRequest() {}
+    ~HttpRequest() {}
     ssize_t     read_request_header();
 
+#define     PARSE_HEADER_DONE           1
 #define     PARSE_INVALID_METHOD        10
 #define     PARSE_INVALID_REQUEST       11
 #define     PARSE_INVALID_VERSION       12
+#define     PARSE_INVALID_HEADER        14
 
     Int         parse_request_line();
     Int         parse_method();
     Int         process_request_uri();
-
+    Int         parse_header_line();
+    Int         process_request_header();
+    void        process_request();
 
     bool need_alloc_large_header_buffer() const;
     
@@ -51,7 +57,7 @@ public:
     uInt                         m_http_version;
     unsigned                     m_http_major:16;
     unsigned                     m_http_minor:16;
-    
+
     HttpHeadersIn                m_header_in;
     HttpHeadersOut               m_header_out;
 
@@ -67,7 +73,11 @@ public:
     u_char                      *m_header_name_end;
     u_char                      *m_header_start;
     u_char                      *m_header_end;
+    size_t                       m_header_hash;
     
+    u_char                       m_lowcase_header[HTTP_LOWCAST_HEADER_LEN];
+    uInt                         m_lowcase_index;
+
     off_t                        m_request_length;
 
     StringSlice                  m_request_line;
@@ -88,6 +98,7 @@ public:
     unsigned                     m_lingering_close:1;
 
     unsigned                     m_space_in_uri:1;
+    unsigned                     m_invalid_header:1;
     unsigned                     m_buffered:4;
     
     unsigned                     m_blocked:8;
@@ -114,6 +125,7 @@ public:
     void http_terminate_handler();
     void empty_handler() {}
     void http_request_finalizer();
+    void http_handler();
     Pool                                *m_pool;
 
     std::function<void()>       m_read_event_handler;

@@ -17,10 +17,11 @@
 
 #include <unistd.h>
 
-
+#include <forward_list>
 #include <list>
 #include <set>
 #include <map>
+#include <unordered_map>
 #include <vector>
 #include <functional>
 
@@ -74,6 +75,7 @@ extern const void *DECLINED_ADDR_token;
 /* Our own HTTP codes */
 /* The special code to close connection without any response */
 #define     CLOSE                       444
+#define     REQUEST_HEADER_TOO_LARGE    494
 /*
  * HTTP does not define the code for the case when a client closed
  * the connection while we are processing its request so we introduce
@@ -91,6 +93,6 @@ void debug_point();
 #define     CR     (u_char) '\r'
 #define     CRLF   "\r\n"
 
-unsigned hash(size_t key, u_char c);
-unsigned hash_string(const char *c);
+size_t hash(size_t key, u_char c);
+size_t hash_string(const char *c);
 #endif

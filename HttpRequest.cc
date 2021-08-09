@@ -99,7 +99,13 @@ Int HttpRequest::alloc_large_header_buffer(bool request_line)
 
         m_method_end    = b->m_start + (m_method_end    - old_start);
         m_uri_start     = b->m_start + (m_uri_start     - old_start);
-        m_uri_end       = b->m_start + (m_uri_end       - old_start);
+
+        if (m_uri_end) {
+            m_uri_end   = b->m_start + (m_uri_end       - old_start);
+        }
+        if (m_uri_ext) {
+            m_uri_ext   = b->m_start + (m_uri_end       - old_start);
+        }
         
         if (m_http_protocol_start) {
             m_http_protocol_start = b->m_start + (m_http_protocol_start - old_start);
@@ -506,3 +512,291 @@ Int HttpRequest::parse_method()
     return PARSE_INVALID_METHOD;
 }
 
+
+Int HttpRequest::parse_header_line()
+{
+    static unsigned char lowcase[] =
+        "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+        "\0\0\0\0\0\0\0\0\0\0\0\0\0-\0\0" "0123456789\0\0\0\0\0\0"
+        "\0abcdefghijklmnopqrstuvwxyz\0\0\0\0\0"
+        "\0abcdefghijklmnopqrstuvwxyz\0\0\0\0\0"
+        "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+        "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+        "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+        "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
+
+    enum class ParseState{
+        start = 0,
+        all_headers_almost_done,
+        header_name,
+        space_before_header_value,
+        header_value,
+        one_header_almost_done,
+        space_after_header_value
+    };
+
+    ParseState parse_state = static_cast<ParseState>(m_parse_state);
+
+    u_char *pos = m_header_in_buffer->m_pos;
+
+    for ( ; pos != m_header_in_buffer->m_last; ++pos) {
+
+        switch (parse_state) {
+
+        case ParseState::start:
+            m_header_name_start = pos;
+            m_invalid_header = false;
+
+            switch (*pos) {
+            case CR:
+                m_header_end = pos;
+                parse_state = ParseState::all_headers_almost_done;
+                break;
+            case LF: 
+                m_header_end = pos;
+                goto all_headers_done;
+            default:
+                parse_state = ParseState::header_name;
+
+                if (lowcase[*pos]) {
+                    m_header_hash = hash(0, lowcase[*pos]);
+                    m_lowcase_header[0] = lowcase[*pos];
+                    m_lowcase_index = 1;
+                    break;
+                }
+
+                if (*pos == '_') {
+                    if (ALLOW_UNDERSCORES_IN_HEADERS) {
+                        m_header_hash = hash(0, *pos);
+                        m_lowcase_header[0] = *pos;
+                        m_lowcase_index = 1;
+                    
+                    } else {
+                        m_header_hash = 0;
+                        m_lowcase_index = 0;
+                        m_invalid_header = true;
+                    }
+                    break;
+                } 
+
+                if (*pos == '\0') {
+                    return PARSE_INVALID_HEADER;
+                }
+
+                m_header_hash = 0;
+                m_lowcase_index = 0;
+                m_invalid_header = true;
+                break;
+            }
+            break;
+        
+        case ParseState::header_name:
+            if (lowcase[*pos]) {
+                m_header_hash = hash(m_header_hash, lowcase[*pos]);
+                m_lowcase_header[m_lowcase_index++] = lowcase[*pos];
+                m_lowcase_index &= (HTTP_LOWCAST_HEADER_LEN - 1);
+                break;
+            }
+            
+            if (*pos == '_') {
+                if (ALLOW_UNDERSCORES_IN_HEADERS) {
+                    m_header_hash = hash(m_header_hash, *pos);
+                    m_lowcase_header[m_lowcase_index++] = *pos;
+                    m_lowcase_index &= (HTTP_LOWCAST_HEADER_LEN - 1);
+
+                } else {
+                    m_invalid_header = true;
+                }
+                break;
+            }
+
+            if (*pos == ':') {
+                m_header_name_end = pos;
+                parse_state = ParseState::space_before_header_value;
+                break;
+            }
+
+            if (*pos == CR) {
+                m_header_name_end = pos;
+                m_header_start = pos;
+                m_header_end = pos;
+                parse_state = ParseState::one_header_almost_done;
+                break;
+            }
+
+            if (*pos == LF) {
+                m_header_name_end = pos;
+                m_header_start = pos;
+                m_header_end = pos;
+                goto one_header_done;
+                break;
+            }
+
+            if (*pos == '\0') {
+                return PARSE_INVALID_HEADER;
+            }
+
+            m_invalid_header = true;
+            break;
+
+        case ParseState::space_before_header_value:
+            switch (*pos) {
+            case ' ':
+                break;
+            case CR:
+                m_header_start = pos;
+                m_header_end = pos;
+                parse_state = ParseState::one_header_almost_done;
+                break;
+            case LF:
+                m_header_start = pos;
+                m_header_end = pos;
+                goto one_header_done;
+            case '\0':
+                PARSE_INVALID_HEADER;
+            default:
+                m_header_start = pos;
+                parse_state = ParseState::header_value;
+                break;
+            }
+            break;
+
+        case ParseState::header_value:
+            switch (*pos) {
+            case ' ':
+                m_header_end = pos;
+                parse_state = ParseState::space_after_header_value;
+                break;
+            case CR:
+                m_header_end = pos;
+                parse_state = ParseState::one_header_almost_done;
+                break;
+            case LF: 
+                m_header_end = pos;
+                goto one_header_done;
+            case '\0':
+                return PARSE_INVALID_HEADER;
+            }
+            break;
+
+        case ParseState::space_after_header_value:
+            switch (*pos) {
+            case ' ':
+                break;
+            case CR:
+                parse_state = ParseState::one_header_almost_done;
+                break;
+            case LF:
+                goto one_header_done;
+            case '\0':
+                return PARSE_INVALID_HEADER;
+            default:
+                parse_state = ParseState::header_value;
+                break;
+            }
+            break;
+
+        case ParseState::one_header_almost_done:
+            switch (*pos) {
+            case LF:
+                goto one_header_done;
+            case CR:
+                break;
+            default:
+                return PARSE_INVALID_HEADER;
+            }
+            break;
+
+        case ParseState::all_headers_almost_done:
+            switch (*pos) {
+            case LF:
+                goto all_headers_done;
+            default:
+                return PARSE_INVALID_HEADER;
+            }
+        }
+    }
+
+    m_header_in_buffer->m_pos = pos;
+    m_parse_state = static_cast<uInt>(parse_state);
+
+    return AGAIN;
+
+one_header_done:
+    m_header_in_buffer->m_pos = pos + 1;
+    m_parse_state = 0;
+
+    return OK;
+
+all_headers_done:
+    m_header_in_buffer->m_pos = pos + 1;
+    m_parse_state = 0;
+
+    return PARSE_HEADER_DONE;
+}
+
+Int HttpRequest::process_request_uri()
+{
+    // m_unparsed_uri = m_uri;
+    // m_valid_unparsed_uri = true;
+    return OK;
+}
+
+Int HttpRequest::process_request_header()
+{
+    if (m_header_in.m_host == m_header_in.m_headers.end()
+        && m_http_version > 1000) 
+    {
+        log_error(LogLevel::alert, "client sent HTTP/1.1 request without \"Host\" header (%s: %d)\n", __FILE__, __LINE__);
+        m_connection->finalize_http_request(this, BAD_REQUEST);
+        return ERROR;
+    }
+
+    return OK;
+}
+
+void HttpRequest::process_request()
+{
+    if (m_connection->m_read_event->m_timer_set) {
+        g_epoller->del_timer(m_connection->m_read_event);
+    }
+
+    m_connection->m_read_event->set_event_handler(&Event::http_request_handler);
+    m_connection->m_write_event->set_event_handler(&Event::http_request_handler);
+
+    set_read_event_handler(&HttpRequest::block_reading_handler);
+    http_handler();
+}
+
+void HttpRequest::http_handler()
+{
+    switch (m_header_in.m_connection_type)
+    {
+    case 0:
+        m_keepalive = m_http_version > 1000;
+        break;
+    
+    case HTTP_CONNECTION_CLOSE:
+        m_keepalive = false;
+        break;
+    
+    case HTTP_CONNECTION_KEEPALIVE:
+        m_keepalive = true;
+        break;
+    }
+
+    m_lingering_close = (m_header_in.m_content_length_n > 0
+                         || m_header_in.m_chunked);
+    
+    set_write_event_handler(&HttpRequest::run_phases_handler);
+    run_write_event_handler();
+}
+
+void HttpRequest::run_phases_handler()
+{
+
+}
+
+void HttpRequest::http_request_finalizer() {
+    
+}

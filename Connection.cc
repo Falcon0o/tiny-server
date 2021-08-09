@@ -223,15 +223,17 @@ HttpRequest *Connection::create_http_request(){
         return nullptr;
     }
 
-    HttpRequest *r = static_cast<HttpRequest*>(pool->calloc(1, sizeof(HttpRequest)));
 
-    if (r == nullptr) {
+    void *addr = pool->calloc(1, sizeof(HttpRequest), 
+            [](void *x) { delete static_cast<HttpRequest*>(x); });
+
+    if (addr == nullptr) {
         delete pool;
         return nullptr;
     }
+    HttpRequest *r = new (addr)HttpRequest();
 
     r->m_pool = pool; 
-
     r->m_http_connection = m_data.hc;
     r->m_connection = this;
     r->set_read_event_handler(&HttpRequest::block_reading_handler);
@@ -247,9 +249,7 @@ HttpRequest *Connection::create_http_request(){
     r->m_method = HttpRequest::Method::UNKNOWN;
     r->m_http_version = 1000;
 
-    r->m_header_in.m_content_length_n = -1;
-    r->m_header_in.m_keep_alive_n = -1;
-
+    
     r->m_header_out.m_content_length_n = -1;
     r->m_header_out.m_last_modified_time = -1;
 

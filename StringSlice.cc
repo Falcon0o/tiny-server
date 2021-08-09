@@ -13,6 +13,10 @@ StringSlice::StringSlice(u_char *data, size_t len)
 
 }
 
+StringSlice::StringSlice(const StringSlice &right)
+:   StringSlice(right.m_data, right.m_len)
+{ }
+
 StringSlice::StringSlice(StringSlice &&right)
 :   StringSlice(right.m_data, right.m_len)
 {
@@ -66,3 +70,42 @@ StringSlice GetHttpStatusLines(uInt http_status)
     log_error(LogLevel::info, "(%s %d) 未定义的 States Line", __FILE__, __LINE__);
     return StringSlice();
 }
+
+void str_lowcase(u_char *dst, u_char *src, size_t len)
+{
+    for (size_t i = 0; i < len; ++i) {
+        dst[i] = (src[i] >= 'A' && src[i] <= 'Z') ? (src[i] | 0x20) : src[i];
+    }
+}
+
+void str_printf(const StringSlice &s)
+{
+    for(size_t i = 0; i < s.m_len; ++i) {
+        printf("%c", s.m_data[i]);
+    }
+}
+
+bool StringSlice::operator==(const char *c) const
+{
+    const unsigned char *pos_1 = m_data;
+    const char* pos_2 = c;
+
+    size_t i = 0;
+    while (i < m_len && *pos_2 != '\0') {
+        if (pos_1[i] != *pos_2) {
+            return false;
+        }
+
+        ++i;
+        ++pos_2;
+    }
+
+    return i == m_len && *pos_2 == '\0';
+}
+
+
+   // unsigned char c_1 = *pos_1;
+        // c_1 = (c_1 >= 'A' && c_1 <= 'Z') ? (c_1 | 0x20) : c_1;
+        
+        // char c_2 = *pos_2;
+        // c_1 = (c_2 >= 'A' && c_2 <= 'Z') ? (c_2 | 0x20) : c_2;

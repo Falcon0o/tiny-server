@@ -2,6 +2,7 @@
 
 #include "Epoller.h"
 #include "Timer.h"
+#include "Pool.h"
 
 static Cycle singleton;
 
@@ -120,6 +121,7 @@ Int Cycle::init_signal_handlers()
 
 void Cycle::worker_process_cycle()
 {
+    g_epoller->create1();
 
     if (TIME_RESOLUTION) {
         struct sigaction  sa;
@@ -201,7 +203,7 @@ Int Cycle::open_listening_sockets()
 {
     for (size_t i = 0; i < m_listening_sockets.size(); ++i) {
         Listening &ls = m_listening_sockets[i];
-        if (m_worker_id != ls.m_worker_id || ls.m_reuseport) {
+        if (m_worker_id != ls.m_worker_id || !ls.m_reuseport) {
             continue;
         }
 
@@ -254,7 +256,7 @@ Connection *Cycle::get_connection(int fd)
 
     memset(conn, 0, sizeof(Connection));
     conn->m_read_event = rev;
-    conn->m_write_event = rev;
+    conn->m_write_event = wev;
     conn->m_fd = fd;
 
     uInt instance = rev->m_instance;
@@ -270,6 +272,8 @@ Connection *Cycle::get_connection(int fd)
     rev->m_data = conn;
     wev->m_data = conn;
     wev->m_write = true;
+
+    new(&conn->m_pool)Pool;
     return conn;
 }
 
@@ -310,6 +314,7 @@ void Cycle::drain_connections()
 
 void Cycle::free_connection(Connection *c)
 {
+    c->m_pool.~Pool();
     c->m_data.c = m_free_connections;
     m_free_connections = c;
     ++m_free_connections_n;

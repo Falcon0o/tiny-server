@@ -1,5 +1,9 @@
 #include "Pool.h"
 
+Pool::Pool()
+{
+
+}
 Pool::~Pool()
 {
     destroy_pool();
@@ -42,4 +46,9 @@ void Pool::destroy_pool()
         deleter(addr);
     }
     m_pool.clear();
+}
+
+void Pool::insert(void *addr, Deleter deleter)
+{
+    m_pool.insert({addr, deleter});
 }

@@ -146,7 +146,7 @@ Int Epoller::process_events_and_timers()
         if (err == EINTR) {
             if (g_process->m_sig_alarm) {
                 g_process->m_sig_alarm = 0;
-                log_error(LogLevel::alert, "(%s: %d) 触发时钟中断\n", __FILE__, __LINE__);
+                // log_error(LogLevel::alert, "(%s: %d) 触发时钟中断\n", __FILE__, __LINE__);
                 return OK;
             }
             log_error(LogLevel::info, "(%s: %d) epoll_wait() 因中断失败\n", __FILE__, __LINE__);
@@ -322,6 +322,7 @@ void Epoller::add_timer(Event *ev, mSec timer)
         del_timer(ev);
     }
 
+    ev->m_timer = timer;
     m_timer_rbtree.insert(ev);
     ev->m_timer_set = true;
 }

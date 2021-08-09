@@ -7,6 +7,7 @@
 #include "HttpConnection.h"
 #include "HttpRequest.h"
 #include "Listening.h"
+#include "Pool.h"
 #include "Timer.h"
 
 void Event::accept_handler()
@@ -448,3 +449,133 @@ void Event::process_http_request_line_handler()
 
     conn->run_posted_http_requests();
 }
+
+
+
+
+
+
+    
+void Event::process_http_request_headers_handler() 
+{
+    Connection *c = get_connection();
+    HttpRequest *r = c->m_data.r;
+    if (m_timeout) {
+        log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
+        c->m_timedout = true;
+        c->close_http_request(REQUEST_TIME_OUT);
+        return;
+    }
+
+    Int rc = AGAIN;
+
+    for ( ;; ) {
+        
+        if (rc == AGAIN) {
+            if (r->need_alloc_large_header_buffer()) {
+                Int rv = r->alloc_large_header_buffer(false);
+                
+                if (rv == ERROR) {
+                    c->close_http_request(INTERNAL_SERVER_ERROR);
+                    break;
+                }
+
+                if (rv == DECLINED) {
+                    if (r->m_header_name_start == nullptr) {
+                        log_error(LogLevel::info, "%s: %d  client sent too large request\n", 
+                                            __FILE__, __LINE__);
+                        c->finalize_http_request(r, REQUEST_HEADER_TOO_LARGE);
+                        break;
+                    }
+                    log_error(LogLevel::info, "%s: %d client sent too long header line\n", 
+                                            __FILE__, __LINE__);
+                    c->finalize_http_request(r, REQUEST_HEADER_TOO_LARGE);
+                    break;
+                }
+
+            }
+
+            ssize_t n = r->read_request_header();
+            
+            if (n == AGAIN || n == ERROR) {
+                break;
+            }
+        }
+        rc = r->parse_header_line();
+
+        if (rc == OK) {
+            r->m_request_length += r->m_header_in_buffer->m_pos - r->m_header_name_start;
+            if (r->m_invalid_header) {
+                continue;
+            }
+
+            StringSlice key(r->m_header_name_start, r->m_header_name_end - r->m_header_name_start);
+            key.m_data[key.m_len] = '\0';
+
+            StringSlice value(r->m_header_start, r->m_header_end - r->m_header_start);
+            value.m_data[value.m_len] = '\0';
+
+            void *lowcase_key = r->m_pool->malloc(key.m_len);
+            if (lowcase_key == nullptr) {
+                c->close_http_request(INTERNAL_SERVER_ERROR);
+                break;
+            }
+
+            if (key.m_len == r->m_lowcase_index) {
+                memcpy(lowcase_key, r->m_lowcase_header, key.m_len);
+            } else {
+                str_lowcase((u_char*)lowcase_key, key.m_data, key.m_len);
+            }
+
+            HttpHeadersIn::iterator iter = r->m_header_in.push_front_header(
+                    key, StringSlice((u_char*)lowcase_key, key.m_len), value, r->m_header_hash);
+            
+            if (r->m_header_in.handle_header(iter, r) != OK) {
+                break;
+            }
+            continue;
+        }
+
+        if (rc == PARSE_HEADER_DONE) {
+            r->m_request_length += r->m_header_in_buffer->m_pos - r->m_header_name_start;
+            
+            rc = r->process_request_header();
+            if (rc != OK) {
+                break;
+            }
+
+            r->process_request();
+            break;
+        }
+
+        if (rc == AGAIN) {
+            continue;
+        }
+
+        log_error(LogLevel::info, "%s: %d client sent invalid header line\n", 
+                                            __FILE__, __LINE__);
+        c->finalize_http_request(r, BAD_REQUEST);
+        break;
+    }
+    c->run_posted_http_requests();
+}
+
+// void http_block_reading_handler(Event *ev)
+// {
+//     Connection *conn = ev->get_data<Connection*>();
+//     HttpRequest *req = conn->get_data<HttpRequest*>();
+
+//     if (conn->close()) {
+//         // TODO: 
+//         req->terminate_with_status_code(HttpStatus::UNSET);
+//         // ngx_http_run_posted_requests(c);
+//         return;
+//     }
+
+//     if (ev->delayed() && ev->timeout()) {
+//         ev->set_delayed(false);
+//         ev->set_timeout(false);
+//     }
+
+//     // 啥也不做
+// }

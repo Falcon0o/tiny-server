@@ -6,15 +6,22 @@
 class StringSlice {
 public:
     StringSlice();
+    StringSlice(const StringSlice &);
 
     StringSlice(u_char *data, size_t len);
     StringSlice(StringSlice &&);
 
+    bool operator==(const char*) const;
     u_char          *m_data;
     size_t           m_len;
 };
 
 #define STRING_SLICE(c) StringSlice((u_char*)c, sizeof(c) - 1)
 
+void str_printf(const StringSlice &s);
+
+void str_lowcase(u_char *dst, u_char *src, size_t len);
 StringSlice GetHttpStatusLines(uInt http_status);
+
+
 #endif
