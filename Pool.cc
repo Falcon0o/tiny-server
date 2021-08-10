@@ -1,6 +1,9 @@
 #include "Pool.h"
 
+#include "BufferChain.h"
+
 Pool::Pool()
+:   m_chain(nullptr)
 {
 
 }
@@ -51,4 +54,24 @@ void Pool::destroy_pool()
 void Pool::insert(void *addr, Deleter deleter)
 {
     m_pool.insert({addr, deleter});
+}
+
+
+BufferChain *Pool::alloc_buffer_chain()
+{
+    BufferChain *ans = m_chain;
+    if (m_chain) {
+        m_chain = m_chain->m_next;
+        return ans;
+    }
+
+    ans = (BufferChain*)malloc(sizeof(BufferChain));
+    ans->m_next = nullptr;
+    return ans;
+}
+
+void Pool::free_buffer_chain(BufferChain *bc)
+{
+    bc->m_next = m_chain;
+    m_chain = bc;
 }

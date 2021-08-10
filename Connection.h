@@ -61,7 +61,7 @@ public:
     
     Listening                           *m_listening;
     int                                  m_type;
-
+#define HTTP_WRITE_BUFFERED              0x10
     unsigned                             m_buffered:8;
 
     unsigned                             m_close:1;    

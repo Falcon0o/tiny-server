@@ -30,7 +30,7 @@ Timer::Timer()
     (void) localtime_r(&m_cached_time[m_slot].m_sec, tm);
     m_cached_time[m_slot].m_gmtoff = tm->tm_gmtoff / 60;
 
-    log_error(LogLevel::info, "%s\n", reinterpret_cast<char*>(m_cached_http_time[m_slot]));
+    // log_error(LogLevel::info, "%s\n", reinterpret_cast<char*>(m_cached_http_time[m_slot]));
 }
 
 Timer::~Timer() {}
@@ -65,26 +65,26 @@ void Timer::update_time()
     (void) localtime_r(&m_cached_time[m_slot].m_sec, tm);
     m_cached_time[m_slot].m_gmtoff = tm->tm_gmtoff / 60;
 
-    log_error(LogLevel::info, "%s\n", reinterpret_cast<char*>(m_cached_http_time[m_slot]));
+    // log_error(LogLevel::info, "%s\n", reinterpret_cast<char*>(m_cached_http_time[m_slot]));
 }
 
-void Timer::get_http_time(struct tm *tm, u_char *buf)
-{
-    sprintf(reinterpret_cast<char*>(buf), 
-            "%s, %02d %s %4d %02d:%02d:%02d GMT",
-            s_week[tm->tm_wday],
-            tm->tm_mday,
-            s_month[tm->tm_mon],
-            tm->tm_year + 1900,
-            tm->tm_hour,
-            tm->tm_min,
-            tm->tm_sec);
+int Timer::get_http_time(struct tm *tm, u_char *buf)
+{   
+    return sprintf(reinterpret_cast<char*>(buf), 
+                "%s, %02d %s %4d %02d:%02d:%02d GMT",
+                s_week[tm->tm_wday],
+                tm->tm_mday,
+                s_month[tm->tm_mon],
+                tm->tm_year + 1900,
+                tm->tm_hour,
+                tm->tm_min,
+                tm->tm_sec);
 }
 
-void Timer::get_http_time(time_t sec, u_char *buf)
+int Timer::get_http_time(time_t sec, u_char *buf)
 {
     tm *tm =  gmtime(&sec);
-    get_http_time(tm, buf);
+    return get_http_time(tm, buf);
 }
 
 time_t Timer::cached_time_sec() const
@@ -95,4 +95,10 @@ time_t Timer::cached_time_sec() const
 mSec Timer::cached_time_msec() const
 {
     return m_cached_time[m_slot].m_msec;
+}
+
+StringSlice Timer::cached_http_time() const
+{
+    size_t slot = m_slot;
+    return StringSlice((u_char*)m_cached_http_time[slot], sizeof("Mon, 28 Sep 1970 06:00:00 GMT"));
 }

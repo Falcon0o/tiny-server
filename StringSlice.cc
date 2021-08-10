@@ -32,7 +32,7 @@ StringSlice GetHttpStatusLines(uInt http_status)
     // ngx_string("303 See Other"),
     switch (http_status) 
     {
-    case OK:                            return STRING_SLICE("200 OK");
+    case HTTP_OK:                       return STRING_SLICE("200 OK");
     case CREATED:                       return STRING_SLICE("201 Created");
     // ("202 Accepted");
     case NO_CONTENT:                    return STRING_SLICE("204 No Content");
@@ -102,6 +102,12 @@ bool StringSlice::operator==(const char *c) const
 
     return i == m_len && *pos_2 == '\0';
 }
+StringSlice &StringSlice::operator=(const char *c)
+{
+    m_data = (u_char*)c;
+    m_len = strlen(c);
+    return *this;
+}
 
 
    // unsigned char c_1 = *pos_1;
@@ -109,3 +115,21 @@ bool StringSlice::operator==(const char *c) const
         
         // char c_2 = *pos_2;
         // c_1 = (c_2 >= 'A' && c_2 <= 'Z') ? (c_2 | 0x20) : c_2;
+
+size_t StringSlice::hash()const
+{
+    size_t ans = 0;
+    for (size_t i = 0; i < m_len; ++i) {
+        ans = ::hash(ans, m_data[i]);
+    }
+    return ans;
+}
+
+StringSlice &StringSlice::operator=(const StringSlice &right) 
+{
+    if (&right != this) {
+        m_data = right.m_data;
+        m_len = right.m_len;
+    }
+    return *this;
+}

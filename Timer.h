@@ -1,15 +1,16 @@
 #ifndef _TIMER_H_INCLUDED_
 #define _TIMER_H_INCLUDED_
 #include "Config.h"
-
+#include "StringSlice.h"
 class Timer {
 public:
     Timer();
     ~Timer();
     void update_time();
-static void get_http_time(time_t sec, u_char *buf);
-static void get_http_time(struct tm *tm, u_char *buf);
+static int get_http_time(time_t sec, u_char *buf);
+static int get_http_time(struct tm *tm, u_char *buf);
     
+    StringSlice cached_http_time() const;
     time_t cached_time_sec() const;
     mSec   cached_time_msec() const;
 private:

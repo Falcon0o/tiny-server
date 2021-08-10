@@ -57,7 +57,7 @@ constexpr mSec TIME_RESOLUTION = 100;
 constexpr mSec ACCEPT_DELAY = 500;
 constexpr mSec CLIENT_HEADER_TIMEOUT = 60000;
 constexpr mSec TIMER_LAZY_DELAY = 300;
-
+constexpr mSec SEND_TIMEOUT = 60000;
 
 enum {
     HTTP_LINGERING_OFF      = 0,

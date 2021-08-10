@@ -409,6 +409,20 @@ void Event::process_http_request_line_handler()
                 r->m_http_protocol.m_len = r->m_request_end - r->m_http_protocol_start;
             }
 
+            r->m_uri.m_data = r->m_uri_start;
+            r->m_uri.m_len  = r->m_uri_end - r->m_uri_start;
+
+            if (r->m_uri_ext_start) {
+                r->m_uri_ext.m_data = r->m_uri_ext_start;
+
+                if (r->m_uri_ext_end) {
+                    r->m_uri_ext.m_len = r->m_uri_ext_end - r->m_uri_ext_start;
+                
+                } else {
+                    r->m_uri_ext.m_len = r->m_uri_end - r->m_uri_ext_start;
+                }
+                
+            }
             if (r->process_request_uri() != OK) {
                 break;
             }

@@ -8,9 +8,11 @@
 #include <string.h>
 
 #include <sys/epoll.h>
+#include <sys/fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/sendfile.h>
 #include <sys/signal.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/uio.h>
 #include <time.h>
@@ -62,6 +64,7 @@ extern const void *DECLINED_ADDR_token;
 #define     OK          0
 
 #define     PARSE_INVALID_VERSION       12
+#define     HTTP_OK                     200
 #define     CREATED                     201
 #define     NO_CONTENT                  204
 #define     PARTIAL_CONTENT             206

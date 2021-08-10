@@ -4,19 +4,18 @@
 #include "Config.h"
 
 
-// #include <unordered_map>
+#include "StringSlice.h"
 
 class HttpHeadersOut 
 {
 public:
     off_t                           m_content_length_n;
     time_t                          m_last_modified_time;
-    uInt                            m_status;                             
-//     HttpHeadersOut();
-//     ~HttpHeadersOut();
-// private:
+    uInt                            m_status; 
+    StringSlice                     m_content_type;                      
+    StringSlice                     m_status_line;
 
-//     static std::unordered_map<unsigned, String>    s_content_types;
+    static std::unordered_map<unsigned, StringSlice>    s_content_types;
 
 //     HttpStatus                      m_status;
 

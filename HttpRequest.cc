@@ -6,7 +6,10 @@
 #include "BufferChain.h"
 #include "Epoller.h"
 #include "Event.h"
+#include "File.h"
 
+HttpRequest::HttpRequest() 
+:   m_phase_engine(this) {}
 
 void HttpRequest::block_reading_handler()
 {
@@ -103,19 +106,32 @@ Int HttpRequest::alloc_large_header_buffer(bool request_line)
         if (m_uri_end) {
             m_uri_end   = b->m_start + (m_uri_end       - old_start);
         }
-        if (m_uri_ext) {
-            m_uri_ext   = b->m_start + (m_uri_end       - old_start);
+
+        if (m_uri_ext_start) {
+            m_uri_ext_start   = b->m_start + (m_uri_ext_start       - old_start);
         }
         
+        if (m_uri_ext_end) {
+            m_uri_ext_end     = b->m_start + (m_uri_ext_end       - old_start);
+        }
+
         if (m_http_protocol_start) {
             m_http_protocol_start = b->m_start + (m_http_protocol_start - old_start);
         }
     
     } else {
-        m_header_name_start     = b->m_start;
-        m_header_name_end       = b->m_start + (m_header_name_end   - old_start);
-        m_header_start          = b->m_start + (m_header_start      - old_start);
-        m_header_end            = b->m_start + (m_header_end        - old_start);
+        
+        m_header_name_start = b->m_start;
+        if (m_header_name_end) {
+            m_header_name_end = b->m_start + (m_header_name_end - old_start);
+        }
+        if (m_header_start) {
+            m_header_start = b->m_start + (m_header_start - old_start);
+        }
+        if (m_header_end) {
+            m_header_end = b->m_start + (m_header_end - old_start);
+        }
+        
     } 
 
     m_header_in_buffer = b;
@@ -307,11 +323,11 @@ Int HttpRequest::parse_request_line()
             switch (*pos)
             {
             case '/':
-                m_uri_ext = nullptr;
+                m_uri_ext_start = nullptr;
                 parse_state = ParseState::after_slash_in_uri;
                 break;
             case '.':
-                m_uri_ext = pos + 1;
+                m_uri_ext_start = pos + 1;
                 break;
             case ' ':
                 m_uri_end = pos;
@@ -504,7 +520,7 @@ Int HttpRequest::parse_method()
     case 3:
         if (m == ('G' | ('E' << 8) | ('T' << 16) | (' ' << 24)) )
         {
-            m_method = Method::GET;
+            m_method = HTTP_METHOD_GET;
             return OK; 
         }
         break;
@@ -792,11 +808,346 @@ void HttpRequest::http_handler()
     run_write_event_handler();
 }
 
-void HttpRequest::run_phases_handler()
+void HttpRequest::http_request_finalizer() 
 {
-
+    m_connection->finalize_http_request(this, 0);
 }
 
-void HttpRequest::http_request_finalizer() {
+
+
+void HttpRequest::run_phases_handler()
+{
+    for (int i = 0; i < HttpPhaseEngine::checkers.size(); ++i) {
+        Int rc = (m_phase_engine.*HttpPhaseEngine::checkers[i])();
+        if (rc == OK) {
+            return;
+        }
+    }
     
+}
+
+
+StringSlice HttpRequest::map_uri_to_path() 
+{
+    size_t path_len = sizeof(PREFIX)- 1 + m_uri.m_len;
+    void *addr = m_pool->malloc(path_len + 1);
+    if (addr == nullptr) {
+        m_connection->close_http_request(INTERNAL_SERVER_ERROR);
+    }
+
+    u_char *path_data = static_cast<u_char*>(addr);
+    memcpy(path_data, PREFIX, (sizeof(PREFIX) - 1));
+    memcpy(path_data + (sizeof(PREFIX) - 1), m_uri.m_data, m_uri.m_len);
+    
+    path_data[path_len] = '\0';
+    return StringSlice(path_data, path_len);
+}
+
+
+Int HttpRequest::http_static_handler()
+{
+    if (!(m_method & (HTTP_METHOD_GET|HTTP_METHOD_POST|HTTP_METHOD_HEAD))) {
+        return NOT_ALLOWED;
+    }
+
+    if (m_uri.m_data[m_uri.m_len - 1] == '/') {
+        return DECLINED;
+    }
+
+    StringSlice &&path = map_uri_to_path();
+    log_error(LogLevel::info, "`%s\'\n", path.m_data);
+
+    OpenFileInfo ofi;
+    if (open_and_stat_file((char*)path.m_data, ofi) != OK) {
+        return INTERNAL_SERVER_ERROR;
+    }
+
+    if (!ofi.m_is_file) {
+        return NOT_FOUND;
+    }
+
+    if (m_method == HTTP_METHOD_POST) {
+        return NOT_ALLOWED;
+    }
+
+    Int rc = discard_request_body();
+
+    if (rc != OK) {
+        return rc;
+    }
+
+    m_header_out.m_status               = HTTP_OK;
+    m_header_out.m_content_length_n     = ofi.m_size;
+    m_header_out.m_last_modified_time   = ofi.m_mtime;
+
+    if (m_header_out.m_content_type.m_len == 0) {
+        if (m_uri_ext.m_len == 0) {
+            m_header_out.m_content_type = DEFAULT_CONTEXT_TYPE;
+        
+        } else {
+            auto iter = m_header_out.s_content_types.find(m_uri_ext.hash());
+            if (iter != m_header_out.s_content_types.end()) {
+                m_header_out.m_content_type = iter->second;
+                
+            } else {
+                m_header_out.m_content_type = DEFAULT_CONTEXT_TYPE;
+            }
+
+        }
+    }
+
+    m_allow_ranges = true;
+
+    
+
+    rc = response_header_filter();
+    if (rc == ERROR || rc > OK || m_header_only) {
+        return rc;
+    }
+
+    Buffer *file_buf = Buffer::create_file_buffer(m_pool, ofi);
+    if (file_buf == nullptr) {
+        return INTERNAL_SERVER_ERROR;
+    }
+
+    file_buf->m_last_buf = (this == m_main_request);
+    file_buf->m_last_buf_in_chain = true;
+    file_buf->m_file->m_name = path;
+
+    BufferChain out(file_buf);
+    return response_body_filter(&out);
+}
+
+
+Int HttpRequest::response_header_filter() 
+{
+    if (m_header_sent) {
+        return OK;
+    }
+
+    m_header_sent = true;
+
+    if (m_header_out.m_last_modified_time != -1) {
+        if (m_header_out.m_status != HTTP_OK
+            && m_header_out.m_status != PARTIAL_CONTENT
+            && m_header_out.m_status != NOT_MODIFIED)
+        {
+            m_header_out.m_last_modified_time = -1;
+            // TODO m_header_out.m_last_modified = nullptr;
+        }
+    }
+
+    size_t len = sizeof("HTTP/1.x ") - 1 + sizeof(CRLF) - 1 + sizeof(CRLF) - 1;
+
+    StringSlice status_line;
+
+    if (m_header_out.m_status_line.m_len) {
+        status_line = m_header_out.m_status_line;
+        
+
+    } else {
+        status_line = GetHttpStatusLines(m_header_out.m_status);
+    }
+
+    len += status_line.m_len;
+    len += sizeof("Date: Mon, 28 Sep 1970 06:00:00 GMT" CRLF) - 1;
+
+    if (m_header_out.m_content_type.m_len) {
+        len += sizeof("Content-Type: ") - 1 
+            + m_header_out.m_content_type.m_len + 2;
+    }
+
+    if (m_header_out.m_content_length_n >= 0) {
+        len += sizeof("Content-Length: ") - 1 
+            + MAX_OFF_T_LEN + 2;
+    }
+
+    if (m_header_out.m_last_modified_time != -1) {
+        len += sizeof("Last-Modified: Mon, 28 Sep 1970 06:00:00 GMT" CRLF) - 1;
+    }
+
+    if (m_keepalive) {
+        len += sizeof("Connection: keep-alive" CRLF) - 1;
+        
+        if (KEEPALIVE_TIMEOUT) {
+            len += sizeof("Keep-Alive: timeout=") - 1 
+                + MAX_TIME_T_LEN + 2;
+        }
+    } else {
+        len += sizeof("Connection: close" CRLF) - 1;
+    }
+
+    Buffer *buf = Buffer::create_temp_buffer(m_pool, len);
+
+    if (buf == nullptr) {
+        return ERROR;
+    }
+
+    *buf << STRING_SLICE("HTTP/1.1 ") << status_line << B_CRLF();
+
+    if (m_header_out.m_content_type.m_len) {
+        *buf << STRING_SLICE("Content-Type: ") << m_header_out.m_content_type << B_CRLF();
+    }
+
+    if (m_header_out.m_content_length_n >= 0) {
+        *buf << STRING_SLICE("Content-Length: ") 
+             << OFF_T(m_header_out.m_content_length_n)
+             << B_CRLF();
+    }
+
+    if (m_header_out.m_last_modified_time != -1) {
+        *buf << STRING_SLICE("Last-Modified: ")
+             << TIME_T(m_header_out.m_last_modified_time)
+             << B_CRLF();
+    }
+
+    if (m_keepalive) {
+        *buf << STRING_SLICE("Connection: keep-alive" CRLF);
+
+        if (KEEPALIVE_TIMEOUT) {
+            *buf << STRING_SLICE("Keep-Alive: timeout=")
+                 << MSEC_T(KEEPALIVE_TIMEOUT)
+                 << B_CRLF();
+        }
+    } else {
+        *buf << STRING_SLICE("Connection: close" CRLF);
+    }
+
+    *buf << B_CRLF();
+    
+    BufferChain out(buf);
+    return response_body_filter(&out);
+}
+
+Int HttpRequest::response_body_filter(BufferChain *in)
+{
+
+    BufferChain **out = &m_out_buffer_chain;
+
+    for (BufferChain *bc = m_out_buffer_chain; bc; bc = bc->m_next) {
+        out = &bc->m_next;
+    }
+    
+    for (; in; in = in->m_next) {
+        *out = m_pool->alloc_buffer_chain();
+        (*out)->m_buffer = in->m_buffer;        
+        out = &(*out)->m_next;
+    }
+    *out = nullptr;
+
+    BufferChain *chain_last = 
+        m_connection->sendfile_from_buffer_chain(m_out_buffer_chain, SENDFILE_MAX_CHUNK);
+
+    if (chain_last == ERROR_ADDR(BufferChain)) {
+        m_connection->m_error = true;
+        return ERROR;
+    }
+
+    for (BufferChain *bc = m_out_buffer_chain; bc != chain_last; )
+    {
+        BufferChain *prev = bc;
+        bc = bc->m_next;
+    }
+
+    m_out_buffer_chain = chain_last;
+
+    if (chain_last) {
+        m_connection->m_buffered |= HTTP_WRITE_BUFFERED;
+        return AGAIN;
+    }
+
+    m_connection->m_buffered &= ~HTTP_WRITE_BUFFERED;
+
+    return OK;
+}
+
+void HttpRequest::discarded_request_body_handler()
+{
+    log_error(1, "未定义的空函数 (%s: %d)", __FILE__, __LINE__);
+}
+
+Int HttpRequest::discard_request_body()
+{
+    log_error(1, "未定义的空函数 (%s: %d)", __FILE__, __LINE__);
+    return OK;
+}
+
+void HttpRequest::http_test_reading()
+{
+    log_error(1, "未定义的空函数 (%s: %d)", __FILE__, __LINE__);
+}
+
+Int HttpRequest::set_write_handler()
+{
+    if (m_discard_body) {
+        set_read_event_handler(&HttpRequest::discarded_request_body_handler);
+    } else {
+        set_read_event_handler(&HttpRequest::http_test_reading);
+    }
+
+    set_write_event_handler(&HttpRequest::http_writer);
+
+    Event *wev = m_connection->m_write_event;
+    if (wev->m_ready || wev->m_delayed) {
+        return OK;
+    }
+
+    if (!wev->m_delayed) {
+        g_epoller->add_timer(wev, SEND_TIMEOUT);
+    }
+
+    if (!wev->m_active && !wev->m_ready) {
+        if (g_epoller->add_read_event(wev, EPOLLET) == ERROR) {
+            m_connection->close_http_request(INTERNAL_SERVER_ERROR);
+            return ERROR;
+        }
+    }
+    return OK;
+}
+
+void HttpRequest::http_writer()
+{
+    Connection *c = m_connection;
+    Event *wev = c->m_write_event;
+
+    if (wev->m_timeout) {
+        c->m_timedout = true;
+        c->finalize_http_request(this, REQUEST_TIME_OUT);
+        return;
+    }
+
+    if (m_aio || wev->m_delayed) {
+        if (!wev->m_delayed) {
+            g_epoller->add_timer(wev, SEND_TIMEOUT);
+        }
+        if (!wev->m_active && !wev->m_ready) {
+            if (g_epoller->add_read_event(wev, EPOLLET) == ERROR) {
+                c->close_http_request(0);
+            }
+        }
+        return;
+    }
+
+    Int rc = response_body_filter(nullptr);
+
+    if (rc == ERROR) {
+        c->finalize_http_request(this, rc);
+        return;
+    }
+
+    if (this == m_main_request && c->m_buffered) {
+        if (!wev->m_delayed) {
+            g_epoller->add_timer(wev, SEND_TIMEOUT);
+        }
+        if (!wev->m_active && !wev->m_ready) {
+            if (g_epoller->add_read_event(wev, EPOLLET) == ERROR) {
+                c->close_http_request(0);
+            }
+        }
+        return;
+    }
+
+    set_write_event_handler(&HttpRequest::empty_handler);
+
+    c->finalize_http_request(this, rc);
 }

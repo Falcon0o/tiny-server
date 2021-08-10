@@ -246,10 +246,9 @@ HttpRequest *Connection::create_http_request(){
     r->m_start_sec = g_timer->cached_time_sec();
     r->m_start_msec = g_timer->cached_time_msec();
 
-    r->m_method = HttpRequest::Method::UNKNOWN;
+    r->m_method = HTTP_METHOD_UNKNOWN;
     r->m_http_version = 1000;
 
-    
     r->m_header_out.m_content_length_n = -1;
     r->m_header_out.m_last_modified_time = -1;
 
@@ -477,10 +476,10 @@ void Connection::finalize_http_request(HttpRequest *r, Int rc)  // ngx_http_fina
     }
 
     if (r->m_buffered || m_buffered /*|| r->postponed*/) {
-        assert(0);
-        // if (ngx_http_set_write_handler(r) != NGX_OK) {
-        //     ngx_http_terminate_request(r, 0);
-        // }
+        
+        if (r->set_write_handler() != OK) {
+            r->m_connection->terminate_http_request(0);
+        }
         return;
     }
 

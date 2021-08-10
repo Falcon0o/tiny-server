@@ -5,17 +5,19 @@
 
 #include "HttpHeadersIn.h"
 #include "HttpHeadersOut.h"
+#include "HttpPhaseEngine.h"
 
 #include "Pool.h"
 
 class Buffer;
+class BufferChain;
 class Connection;
 class HttpConnection;
 
 
 class HttpRequest {
 public:
-    HttpRequest() {}
+    HttpRequest();
     ~HttpRequest() {}
     ssize_t     read_request_header();
 
@@ -25,24 +27,26 @@ public:
 #define     PARSE_INVALID_VERSION       12
 #define     PARSE_INVALID_HEADER        14
 
+#define     HTTP_METHOD_UNKNOWN      0x0001
+#define     HTTP_METHOD_GET          0x0002
+#define     HTTP_METHOD_HEAD         0x0004
+#define     HTTP_METHOD_POST         0x0008
+
     Int         parse_request_line();
     Int         parse_method();
     Int         process_request_uri();
     Int         parse_header_line();
     Int         process_request_header();
     void        process_request();
-
-    bool need_alloc_large_header_buffer() const;
+    StringSlice map_uri_to_path();
+    bool        need_alloc_large_header_buffer() const;
     
     /* r->m_request_start; */
     Int alloc_large_header_buffer(bool request_line);
 
     Int post_http_request();// ngx_http_post_request
-    enum class Method{
-        UNKNOWN = 0,
-        GET,
-        HEAD,
-        POST}                    m_method;
+    Int discard_request_body();
+    Int                          m_method;
 
     HttpConnection              *m_http_connection;
     Connection                  *m_connection;
@@ -57,16 +61,18 @@ public:
     uInt                         m_http_version;
     unsigned                     m_http_major:16;
     unsigned                     m_http_minor:16;
-
+    
     HttpHeadersIn                m_header_in;
     HttpHeadersOut               m_header_out;
+    HttpPhaseEngine              m_phase_engine;
 
     u_char                      *m_request_start;
     u_char                      *m_request_end;
     u_char                      *m_method_end;
     u_char                      *m_uri_start;
     u_char                      *m_uri_end;
-    u_char                      *m_uri_ext;
+    u_char                      *m_uri_ext_start;
+    u_char                      *m_uri_ext_end;
     u_char                      *m_http_protocol_start;
 
     u_char                      *m_header_name_start;
@@ -83,6 +89,10 @@ public:
     StringSlice                  m_request_line;
     StringSlice                  m_method_name;
     StringSlice                  m_http_protocol;
+    StringSlice                  m_uri;
+
+    /* 如果有?等参数 */
+    StringSlice                  m_uri_ext;
 
     /* 和子请求相关，无子请求计数应为 1 */ 
     size_t                       m_count:16;
@@ -99,11 +109,20 @@ public:
 
     unsigned                     m_space_in_uri:1;
     unsigned                     m_invalid_header:1;
+    unsigned                     m_allow_ranges:1;
+    unsigned                     m_header_sent:1;
+    unsigned                     m_header_only:1;
+    unsigned                     m_discard_body:1;
+    unsigned                     m_aio:1;
     unsigned                     m_buffered:4;
     
     unsigned                     m_blocked:8;
     
     unsigned                     m_posted:1; /* 自己加的 */
+    size_t                       m_response_header_size;
+
+    Int response_header_filter();
+    Int response_body_filter(BufferChain *);
 
     template <typename T> void set_read_event_handler(T f) {
         m_read_event_handler = std::bind(f, this);
@@ -119,6 +138,7 @@ public:
         m_write_event_handler(); 
     }
 
+    Int set_write_handler();
 
     void block_reading_handler();
     void run_phases_handler();
@@ -126,12 +146,22 @@ public:
     void empty_handler() {}
     void http_request_finalizer();
     void http_handler();
+    void discarded_request_body_handler();
+    void ngx_http_test_reading();
+//  phases handler
+    Int http_static_handler();
+    void http_test_reading();
+    void http_writer();
     Pool                                *m_pool;
 
     std::function<void()>       m_read_event_handler;
     std::function<void()>       m_write_event_handler;
 
     uInt                        m_parse_state;
+
+    // TODO: 暂未使用的变量
+    void                        *m_content_handler;
+    BufferChain                 *m_out_buffer_chain;
 };
 
 
