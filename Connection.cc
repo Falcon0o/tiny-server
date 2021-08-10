@@ -2,12 +2,20 @@
 
 #include "Buffer.h"
 #include "BufferChain.h"
+#include "Connections.h"
 #include "Cycle.h"
 #include "Epoller.h"
 #include "HttpConnection.h"
 #include "HttpRequest.h"
 #include "IOVector.h"
 #include "Timer.h"
+
+
+void Connection::free()
+{
+    m_pool.~Pool();
+    g_connections->free_connection(this);
+}
 
 
 void Connection::create_http_connection()
@@ -21,16 +29,16 @@ void Connection::create_http_connection()
 
     new (m_data.v)HttpConnection;
     
-    m_read_event->set_event_handler(&Event::wait_http_request_handler);
-    m_write_event->set_event_handler(&Event::empty_handler);
+    m_read_event->set_handler(&Event::wait_http_request_handler);
+    m_write_event->set_handler(&Event::empty_handler);
 
     if (m_read_event->m_ready) {
-        m_read_event->run_event_handler();
+        m_read_event->run_handler();
         return;
     }
     
     g_epoller->add_timer(m_read_event, CLIENT_HEADER_TIMEOUT);
-    g_cycle->reusable_connection(this, true);
+    g_connections->reusable_connection(this, true);
 }
 
 void Connection::finalize_http_connection()
@@ -78,7 +86,7 @@ void Connection::close_http_connection()
 
 void Connection::close_accepted_connection()
 {
-    g_cycle->free_connection(this);
+    free();
 
     int fd = m_fd;
     m_fd = -1;
@@ -122,8 +130,8 @@ void Connection::close_connection()
     m_read_event->m_closed = true;
     m_write_event->m_closed = true;
 
-    g_cycle->reusable_connection(this, false);
-    g_cycle->free_connection(this);
+    g_connections->reusable_connection(this, false);
+    free();
 
     int fd = m_fd;
     m_fd = -1;
@@ -142,7 +150,7 @@ void Connection::close_connection()
     }
 }
 
-ssize_t Connection::recv_to_buffer(Buffer *b)
+ssize_t Connection::recv_to_buffer(u_char *last, u_char *end)
 {
     Event *rev = m_read_event;
 
@@ -151,11 +159,11 @@ ssize_t Connection::recv_to_buffer(Buffer *b)
         rev->m_ready = false;
         return AGAIN;
     }
-
+    
     ssize_t n;
     int err;
     do {
-        n = ::recv(m_fd, b->m_last, b->m_end - b->m_last, 0);
+        n = ::recv(m_fd, last, end - last, 0);
 
         if (n == 0) {
             rev->m_ready = false;
@@ -172,7 +180,7 @@ ssize_t Connection::recv_to_buffer(Buffer *b)
                     rev->m_ready = false;
                 }
 
-            } else if (n == static_cast<ssize_t>(b->m_end - b->m_last)) {
+            } else if (n == static_cast<ssize_t>(end - last)) {
                 
                 int nread;
 
@@ -184,7 +192,7 @@ ssize_t Connection::recv_to_buffer(Buffer *b)
                 rev->m_available_n = nread;
             }
 
-            if (n < static_cast<ssize_t>(b->m_end - b->m_last)) {
+            if (n < static_cast<ssize_t>(end - last)) {
                 if (!rev->m_pending_eof) {
                     rev->m_ready = false;
                 }
@@ -214,6 +222,10 @@ ssize_t Connection::recv_to_buffer(Buffer *b)
     }
 
     return n;
+}
+ssize_t Connection::recv_to_buffer(Buffer *buf)
+{
+    return recv_to_buffer(buf->m_last, buf->m_end);
 }
 
 HttpRequest *Connection::create_http_request(){
@@ -423,7 +435,7 @@ void Connection::finalize_http_request(HttpRequest *r, Int rc)  // ngx_http_fina
 
     if (rc == DECLINED) {
         r->set_write_event_handler(&HttpRequest::run_phases_handler);
-        r->run_write_event_handler();
+        r->run_write_handler();
         return;
     }
 
@@ -463,8 +475,8 @@ void Connection::finalize_http_request(HttpRequest *r, Int rc)  // ngx_http_fina
                 g_epoller->del_timer(m_write_event);
             }
 
-            m_read_event->set_event_handler(&Event::http_request_handler);
-            m_write_event->set_event_handler(&Event::http_request_handler);
+            m_read_event->set_handler(&Event::http_request_handler);
+            m_write_event->set_handler(&Event::http_request_handler);
             assert(0);
             // ngx_http_finalize_request(r, ngx_http_special_response_handler(r, rc));
             return;
@@ -590,7 +602,7 @@ void Connection::run_posted_http_requests()
     }
 
     if (m_data.r->m_posted) {
-        m_data.r->run_write_event_handler();
+        m_data.r->run_write_handler();
         m_data.r->m_posted = false;
     }
 }
@@ -642,7 +654,7 @@ void Connection::set_http_keepalive()
         }
     }
 
-    m_write_event->set_event_handler(&Event::empty_handler);
+    m_write_event->set_handler(&Event::empty_handler);
 
     if (b->m_pos < b->m_last) {
         HttpRequest *r = create_http_request();
@@ -662,7 +674,7 @@ void Connection::set_http_keepalive()
             g_epoller->del_timer(m_read_event);
         }
 
-        m_read_event->set_event_handler(&Event::process_http_request_line_handler);
+        m_read_event->set_handler(&Event::process_http_request_line_handler);
         g_epoller->add_posted_event(m_read_event);
         return;
     }
@@ -694,7 +706,7 @@ void Connection::set_http_keepalive()
     hc->m_busy_buffers = nullptr;
     hc->m_busy_buffers_num = 0;
 
-    m_read_event->set_event_handler(&Event::http_keepalive_handler);
+    m_read_event->set_handler(&Event::http_keepalive_handler);
 
     if (m_write_event->m_active) {
         if (g_epoller->del_write_event(m_write_event, false) != OK) {
@@ -738,7 +750,7 @@ void Connection::set_http_keepalive()
     }
 
     m_idle = true;
-    g_cycle->reusable_connection(this, true);
+    g_connections->reusable_connection(this, true);
     g_epoller->add_timer(m_read_event, KEEPALIVE_TIMEOUT);
 
     if (m_read_event->m_ready) {
@@ -754,7 +766,7 @@ void Connection::set_http_lingering_close()
                 g_timer->cached_time_sec() + (time_t)(HTTP_LINGERING_TIME / 1000);
     }
 
-    m_read_event->set_event_handler(&Event::http_lingering_close_handler);
+    m_read_event->set_handler(&Event::http_lingering_close_handler);
     if (!m_read_event->m_active && !m_read_event->m_ready) {
         if (g_epoller->add_read_event(m_read_event, EPOLLET) != OK) {
             close_http_request(0);
@@ -762,7 +774,7 @@ void Connection::set_http_lingering_close()
         }
     }
 
-    m_write_event->set_event_handler(&Event::empty_handler);
+    m_write_event->set_handler(&Event::empty_handler);
     if (m_write_event->m_active) {
         if (g_epoller->del_write_event(m_write_event, false) != OK) {
             close_http_request(0);
@@ -777,12 +789,12 @@ void Connection::set_http_lingering_close()
     }
 
     m_close = false;
-    g_cycle->reusable_connection(this, true);
+    g_connections->reusable_connection(this, true);
 
     g_epoller->add_timer(m_read_event, HTTP_LINGERING_TIMEOUT);
 
     if (m_read_event->m_ready) {
-        m_read_event->run_event_handler();
+        m_read_event->run_handler();
     }
 }
 

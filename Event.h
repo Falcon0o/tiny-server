@@ -2,10 +2,16 @@
 #define _EVENT_H_INCLUDED_
 
 #include "Config.h"
+
 class Connection;
+
+
 class Event 
 {
 public: 
+    typedef void(Event::*Handler)();
+
+
     unsigned            m_instance:1;
     unsigned            m_closed:1;
     unsigned            m_write:1;
@@ -26,15 +32,13 @@ public:
 
     mSec                m_timer;                
     ssize_t             m_available_n;
-    void               *m_data;
+    Connection         *m_connection;
     // conn->m_close
 
-    
-    template <typename T> 
-    void set_event_handler(T f) { 
-        m_handler = std::bind(f, this); }
+    void set_handler(Handler h) { 
+        m_handler = h; }
 
-    void run_event_handler() { m_handler(); }
+    void run_handler() { (this->*m_handler)(); }
     void set_epoll_event_data(epoll_event *ee, const class Connection *c) const {
         ee->data.ptr = (void *) ((uintptr_t) c | m_instance);
     }
@@ -48,11 +52,8 @@ public:
     void    http_keepalive_handler();// ngx_http_keepalive_handler
     void    http_lingering_close_handler(); // ngx_http_lingering_close_handler
 
-    Connection *get_connection() const {
-        return static_cast<Connection*>(m_data);
-    }
 private:
-    std::function<void()> m_handler;
+    Handler m_handler;
 };
 
 

@@ -131,10 +131,10 @@ public:
         m_write_event_handler = std::bind(f, this);
     }
 
-    void run_read_event_handler() { 
+    void run_read_handler() { 
         m_read_event_handler();
     }
-    void run_write_event_handler() { 
+    void run_write_handler() { 
         m_write_event_handler(); 
     }
 

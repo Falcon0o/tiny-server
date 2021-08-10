@@ -28,8 +28,6 @@ public:
     static Buffer *create_temp_buffer(Pool *pool, size_t size);
     static Buffer *create_file_buffer(Pool *pool, const OpenFileInfo &ofi);
 
-    Buffer() {} 
-
     bool in_memory() const { 
         return m_memory || m_temporary || m_mmap; 
     }
@@ -70,6 +68,9 @@ public:
     unsigned                     m_last_buf_in_chain:1;
     unsigned                     m_sync:1;
     File                        *m_file;
+
+private:
+    Buffer() {} 
 };
 
 

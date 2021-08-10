@@ -1,6 +1,8 @@
 #include "Event.h"
 
 #include "Buffer.h"
+#include "Connection.h"
+#include "Connections.h"
 
 #include "Cycle.h"
 #include "Epoller.h"
@@ -20,7 +22,7 @@ void Event::accept_handler()
         m_timeout = false;
     }
 
-    Connection *ls_conn = get_connection();
+    Connection *const ls_conn = m_connection;
     Listening *ls = ls_conn->m_listening;
 
     m_ready = false;
@@ -79,7 +81,7 @@ void Event::accept_handler()
             log_error(LogLevel::info, " %ud.%ud.%ud.%ud : %d (%s: %d)\n", uc[0], uc[1], uc[2], uc[3], ntohs(sin->sin_port), __FILE__, __LINE__); 
         }
 
-        Connection *c = g_cycle->get_connection(s);
+        Connection *c = g_connections->get_connection(s);
         if (c == nullptr) {
             log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
             if (close(s) == -1) {
@@ -130,37 +132,37 @@ void Event::empty_handler()
 
 void Event::wait_http_request_handler()
 {
-    Connection *conn = get_connection();
+    Connection *const c = m_connection;
     if (m_timeout) {
         log_error(LogLevel::debug, "(%s: %d) client timed out\n", __FILE__, __LINE__);
-        conn->close_http_connection();
+        c->close_http_connection();
         return;
     }
     
-    if (conn->m_close) {
+    if (c->m_close) {
         log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
-        conn->close_http_connection();
+        c->close_http_connection();
         return;
     }
 
-    HttpConnection *hc = conn->m_data.hc;
+    HttpConnection *hc = c->m_data.hc;
     
-    Buffer *buf = conn->m_small_buffer;
+    Buffer *buf = c->m_small_buffer;
     if (buf == nullptr) {
-        buf = Buffer::create_temp_buffer(&conn->m_pool, CLIENT_HEADER_BUFFER_SIZE);
+        buf = Buffer::create_temp_buffer(&c->m_pool, CLIENT_HEADER_BUFFER_SIZE);
 
         if (buf == nullptr) {
-            conn->close_http_connection();
+            c->close_http_connection();
             return;
         }
 
-        conn->m_small_buffer = buf;
+        c->m_small_buffer = buf;
     
     } else if (buf->m_start == nullptr) {
 
-        buf->m_start = static_cast<u_char*>(conn->m_pool.malloc(CLIENT_HEADER_BUFFER_SIZE));
+        buf->m_start = static_cast<u_char*>(c->m_pool.malloc(CLIENT_HEADER_BUFFER_SIZE));
         if(buf->m_start == nullptr) {
-            conn->close_http_connection();
+            c->close_http_connection();
             return;
         }
 
@@ -169,18 +171,18 @@ void Event::wait_http_request_handler()
         buf->m_end = buf->m_start + CLIENT_HEADER_BUFFER_SIZE;
     }
 
-    ssize_t n = conn->recv_to_buffer(buf);
+    ssize_t n = c->recv_to_buffer(buf);
 
     if (n == AGAIN) {
         
         if (!m_timer_set) {
             g_epoller->add_timer(this, CLIENT_HEADER_TIMEOUT);
-            g_cycle->reusable_connection(conn, true);
+            g_connections->reusable_connection(c, true);
         }
 
         if (!m_active && !m_ready) {
             if (g_epoller->add_read_event(this, EPOLLET) == ERROR) {
-                conn->close_http_connection();
+                c->close_http_connection();
                 return;
             }
         }
@@ -188,7 +190,7 @@ void Event::wait_http_request_handler()
          * We are trying to not hold c->buffer's memory for an idle connection.
          */
 
-        conn->m_pool.free(buf->m_start);
+        c->m_pool.free(buf->m_start);
         buf->m_start = nullptr;
 
         return;
@@ -196,35 +198,35 @@ void Event::wait_http_request_handler()
 
     if (n == ERROR) {
         log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
-        conn->close_http_connection();
+        c->close_http_connection();
         return;
     }
 
     if (n == 0) {
         log_error(LogLevel::debug, "    客户端关闭了连接 (%s: %d)\n", __FILE__, __LINE__);
-        conn->close_http_connection();
+        c->close_http_connection();
         return;
     }
 
     buf->m_last += n;
 
-    g_cycle->reusable_connection(conn, false);
+    g_connections->reusable_connection(c, false);
 
-    HttpRequest *r = conn->create_http_request();
+    HttpRequest *r = c->create_http_request();
     if (r == nullptr) { 
         log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
-        conn->close_http_connection();
+        c->close_http_connection();
         return;
     }
     
-    conn->m_data.r = r;
+    c->m_data.r = r;
 
-    set_event_handler(&Event::process_http_request_line_handler);
-    run_event_handler();
+    set_handler(&Event::process_http_request_line_handler);
+    run_handler();
 }
 
 void Event::http_request_handler() {
-    Connection *c = get_connection();
+    Connection *const c = m_connection;
     
     if (c->m_close) {
         c->m_data.r->m_main_request->m_count++;
@@ -239,10 +241,10 @@ void Event::http_request_handler() {
     }
 
     if (m_write) {
-        c->m_data.r->run_write_event_handler();
+        c->m_data.r->run_write_handler();
     
     } else {
-        c->m_data.r->run_read_event_handler();
+        c->m_data.r->run_read_handler();
     }
 
     c->run_posted_http_requests();
@@ -250,7 +252,8 @@ void Event::http_request_handler() {
 
 void Event::http_keepalive_handler()
 {
-    Connection *c = get_connection();
+    Connection *const c = m_connection;
+
     if (m_timeout || c->m_close) {
         c->close_http_connection();
         return;
@@ -311,7 +314,7 @@ void Event::http_keepalive_handler()
     b->m_last += n;
 
     c->m_idle = false;
-    g_cycle->reusable_connection(c, false);
+    g_connections->reusable_connection(c, false);
     c->m_data.r = c->create_http_request();
 
     if (c->m_data.r == nullptr) {
@@ -324,19 +327,14 @@ void Event::http_keepalive_handler()
     
     g_epoller->del_timer(c->m_read_event);
 
-    c->m_read_event->set_event_handler(&Event::process_http_request_line_handler);
-    c->m_read_event->run_event_handler();
+    c->m_read_event->set_handler(&Event::process_http_request_line_handler);
+    c->m_read_event->run_handler();
 }
 
 
 void Event::http_lingering_close_handler()
 {
-    u_char  buffer[HTTP_LINGERING_BUFFER_SIZE];
-    Buffer buf;
-    buf.m_start =  buf.m_pos = buf.m_last = buffer;
-    buf.m_end = buf.m_start + sizeof(buffer);
-
-    Connection *c = get_connection();
+    Connection *const c = m_connection;
 
     if (m_timeout || c->m_close) {
         c->close_http_request(0);
@@ -348,9 +346,9 @@ void Event::http_lingering_close_handler()
         c->close_http_request(0);
         return;
     }
-
+    u_char  buffer[HTTP_LINGERING_BUFFER_SIZE];
     do {
-        ssize_t n = c->recv_to_buffer(&buf);
+        ssize_t n = c->recv_to_buffer(buffer, buffer + HTTP_LINGERING_BUFFER_SIZE);
 
         if (n == AGAIN) {
             break;
@@ -372,14 +370,14 @@ void Event::http_lingering_close_handler()
 
 void Event::process_http_request_line_handler()
 {
-    Connection *conn = get_connection();
+    Connection *const c = m_connection;
 
-    HttpRequest *r = conn->m_data.r;
+    HttpRequest *r = c->m_data.r;
 
     if (m_timeout) {
         log_error(LogLevel::debug, "(%s: %d) client timed out\n", __FILE__, __LINE__);
-        conn->m_timedout = true;
-        conn->close_http_request(REQUEST_TIME_OUT);
+        c->m_timedout = true;
+        c->close_http_request(REQUEST_TIME_OUT);
         return;
     }
     
@@ -427,17 +425,17 @@ void Event::process_http_request_line_handler()
                 break;
             }
 
-            set_event_handler(&Event::process_http_request_headers_handler);
-            run_event_handler();
+            set_handler(&Event::process_http_request_headers_handler);
+            run_handler();
             break;
         }
 
         if (rc != AGAIN) {
             if (rc == PARSE_INVALID_VERSION) {
-                conn->finalize_http_request(r, VERSION_NOT_SUPPORTED);
+                c->finalize_http_request(r, VERSION_NOT_SUPPORTED);
 
             } else {
-                conn->finalize_http_request(r, BAD_REQUEST);
+                c->finalize_http_request(r, BAD_REQUEST);
             }
 
             break;
@@ -448,20 +446,20 @@ void Event::process_http_request_line_handler()
             Int rv = r->alloc_large_header_buffer(true);
 
             if (rv == ERROR) {
-                conn->finalize_http_request(r, INTERNAL_SERVER_ERROR);
+                c->finalize_http_request(r, INTERNAL_SERVER_ERROR);
                 break;
             }
 
             if (rv == DECLINED) {
                 r->m_request_line.m_len = r->m_header_in_buffer->m_end - r->m_request_start;
                 r->m_request_line.m_data = r->m_request_start;
-                conn->finalize_http_request(r, REQUEST_URI_TOO_LARGE);
+                c->finalize_http_request(r, REQUEST_URI_TOO_LARGE);
                 break;
             }
         }   
     }
 
-    conn->run_posted_http_requests();
+    c->run_posted_http_requests();
 }
 
 
@@ -472,7 +470,7 @@ void Event::process_http_request_line_handler()
     
 void Event::process_http_request_headers_handler() 
 {
-    Connection *c = get_connection();
+    Connection *const c = m_connection;
     HttpRequest *r = c->m_data.r;
     if (m_timeout) {
         log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);

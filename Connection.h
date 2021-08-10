@@ -24,7 +24,19 @@ enum {
 };
 
 class Connection {
+
 public:
+    Connection()  = default;
+    ~Connection()  = default;
+
+    Connection(const Connection &) = delete;
+    Connection& operator=(const Connection &) = delete;
+    Connection(Connection &&) = delete;
+    Connection& operator=(Connection &&) = delete;
+
+    void free();
+
+
     void create_http_connection();
     void finalize_http_connection();  // ngx_http_finalize_connection
     void close_http_connection();
@@ -46,6 +58,8 @@ public:
 
     /*返回值为 AGAIN 时，buffer 中未读取任何数据 */
     ssize_t recv_to_buffer(Buffer *b);
+    ssize_t recv_to_buffer(u_char *last, u_char *end);
+
     BufferChain *sendfile_from_buffer_chain(BufferChain *in, off_t limit);
     ssize_t sendfile_from_buffer(Buffer *buf, size_t size);
     ssize_t write_from_iovec(IOVector *iov);

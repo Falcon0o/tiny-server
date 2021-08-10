@@ -777,8 +777,8 @@ void HttpRequest::process_request()
         g_epoller->del_timer(m_connection->m_read_event);
     }
 
-    m_connection->m_read_event->set_event_handler(&Event::http_request_handler);
-    m_connection->m_write_event->set_event_handler(&Event::http_request_handler);
+    m_connection->m_read_event->set_handler(&Event::http_request_handler);
+    m_connection->m_write_event->set_handler(&Event::http_request_handler);
 
     set_read_event_handler(&HttpRequest::block_reading_handler);
     http_handler();
@@ -805,7 +805,7 @@ void HttpRequest::http_handler()
                          || m_header_in.m_chunked);
     
     set_write_event_handler(&HttpRequest::run_phases_handler);
-    run_write_event_handler();
+    run_write_handler();
 }
 
 void HttpRequest::http_request_finalizer() 

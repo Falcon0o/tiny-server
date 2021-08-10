@@ -34,13 +34,13 @@ Int Epoller::create1()
 
 Int Epoller::add_read_event(Event *ev, unsigned flags) 
 {
-    Connection *conn = static_cast<Connection*>(ev->m_data);
+    Connection *const c = ev->m_connection;
 
-    Event *wev = conn->m_write_event;
+    Event *wev = c->m_write_event;
 
     epoll_event ee;
     ee.events = EPOLLIN |  EPOLLRDHUP | flags; 
-    ev->set_epoll_event_data(&ee, conn);
+    ev->set_epoll_event_data(&ee, c);
 
     int epoll_op = EPOLL_CTL_ADD;
 
@@ -53,7 +53,7 @@ Int Epoller::add_read_event(Event *ev, unsigned flags)
         ee.events &= ~EPOLLRDHUP;
     }
 
-    if (epoll_ctl(m_epfd, epoll_op, conn->m_fd, &ee) == -1) {
+    if (epoll_ctl(m_epfd, epoll_op, c->m_fd, &ee) == -1) {
         int err = errno;
         log_error(LogLevel::alert, "(%s: %d) epoll_ctl() errno %d \n", __FILE__, __LINE__, err);
         return ERROR;
@@ -65,13 +65,13 @@ Int Epoller::add_read_event(Event *ev, unsigned flags)
 
 Int Epoller::add_write_event(Event *ev, unsigned flags) 
 {
-    Connection *conn = static_cast<Connection*>(ev->m_data);
+    Connection *const c = ev->m_connection;
 
-    Event *rev = conn->m_read_event;
+    Event *rev = c->m_read_event;
 
     epoll_event ee;
     ee.events = EPOLLOUT | flags; 
-    ev->set_epoll_event_data(&ee, conn);
+    ev->set_epoll_event_data(&ee, c);
 
     int epoll_op = EPOLL_CTL_ADD;
 
@@ -84,7 +84,7 @@ Int Epoller::add_write_event(Event *ev, unsigned flags)
         ee.events &= ~EPOLLRDHUP;
     }
 
-    if (epoll_ctl(m_epfd, epoll_op, conn->m_fd, &ee) == -1) {
+    if (epoll_ctl(m_epfd, epoll_op, c->m_fd, &ee) == -1) {
         int err = errno;
         log_error(LogLevel::alert, "(%s: %d) epoll_ctl() errno %d \n", __FILE__, __LINE__, err);
         return ERROR;
@@ -199,7 +199,7 @@ Int Epoller::process_events_and_timers()
             }
             rev->m_ready = true;
             rev->m_available_n = -1;
-            rev->run_event_handler();
+            rev->run_handler();
         }
 
         Event *wev = conn->m_write_event;
@@ -210,7 +210,7 @@ Int Epoller::process_events_and_timers()
             }
             
             wev->m_ready = true;
-            wev->run_event_handler();
+            wev->run_handler();
         }
     }
 
@@ -229,8 +229,8 @@ Int Epoller::del_read_event(Event *ev, bool close)
         return OK;
     }
 
-    Connection *conn = static_cast<Connection*>(ev->m_data);
-    Event *wev = conn->m_write_event;
+    Connection *const c = ev->m_connection;
+    Event *wev = c->m_write_event;
 
     epoll_event ee;
     int epoll_op;
@@ -238,7 +238,7 @@ Int Epoller::del_read_event(Event *ev, bool close)
     if (wev->m_active) {
         epoll_op = EPOLL_CTL_MOD;
         ee.events = EPOLLOUT;
-        ev->set_epoll_event_data(&ee, conn);
+        ev->set_epoll_event_data(&ee, c);
 
     } else {
         epoll_op = EPOLL_CTL_DEL;
@@ -246,7 +246,7 @@ Int Epoller::del_read_event(Event *ev, bool close)
         ee.data.ptr = nullptr;
     }
 
-    if (epoll_ctl(m_epfd, epoll_op, conn->m_fd, &ee) == -1) {
+    if (epoll_ctl(m_epfd, epoll_op, c->m_fd, &ee) == -1) {
         return ERROR;
     }
 
@@ -262,8 +262,8 @@ Int Epoller::del_write_event(Event *ev, bool close)
         return OK;
     }
 
-    Connection *conn = static_cast<Connection*>(ev->m_data);
-    Event *rev = conn->m_read_event;
+    Connection *const c = ev->m_connection;
+    Event *rev = c->m_read_event;
 
     epoll_event ee;
     int epoll_op;
@@ -271,7 +271,7 @@ Int Epoller::del_write_event(Event *ev, bool close)
     if (rev->m_active) {
         epoll_op = EPOLL_CTL_MOD;
         ee.events = EPOLLRDHUP | EPOLLIN;
-        ev->set_epoll_event_data(&ee, conn);
+        ev->set_epoll_event_data(&ee, c);
 
     } else {
         epoll_op = EPOLL_CTL_DEL;
@@ -279,7 +279,7 @@ Int Epoller::del_write_event(Event *ev, bool close)
         ee.data.ptr = nullptr;
     }
 
-    if (epoll_ctl(m_epfd, epoll_op, conn->m_fd, &ee) == -1) {
+    if (epoll_ctl(m_epfd, epoll_op, c->m_fd, &ee) == -1) {
         return ERROR;
     }
 
@@ -367,7 +367,7 @@ void Epoller::expire_timers()
 
         ev->m_timeout = true;
         ev->m_timer_set = false;
-        ev->run_event_handler();
+        ev->run_handler();
     } 
 }
 
@@ -379,7 +379,7 @@ void Epoller::process_posted_events()
         Event *ev = *iter;
         if (ev->m_posted) {
             ev->m_posted = false;
-            ev->run_event_handler();
+            ev->run_handler();
             m_posted_events.pop_front();
         } 
     }
