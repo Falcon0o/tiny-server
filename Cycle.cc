@@ -10,7 +10,6 @@ static Cycle singleton;
 
 Cycle *g_cycle = &singleton;
 
-
 Cycle::Cycle()
 :   m_master_process(Process::Type::master, getppid(), getgid()),
     m_worker_cnt(0),
@@ -44,17 +43,21 @@ void Cycle::master_process_cycle()
         return;
     }
 
+    g_log_file = stdout;
+
+    int err = errno;
     for (size_t i = 0; i < m_worker_cnt; ++i) {
         m_worker_processes.emplace_back(Process::Type::worker, g_process->m_pid);
         // m_worker_processes.back().open_channel_with_parent();
         switch (pid_t pid = fork()) {
         
         case -1:
-            log_error(LogLevel::alert, "%s: Line %d\n", __FILE__, __LINE__);
-            // m_worker_processes[i].close_channel_with_parent();
+            LOG_ERROR(LogLevel::info, "errno %d: %s\n"
+                        " ==== %s %d", err, strerror(err), __FILE__, __LINE__);
             continue;
 
         case 0:
+            g_log_file = stdout;
             g_process = &m_worker_processes[i];
             g_process->m_pid = getpid();
             m_worker_id = i;
@@ -62,6 +65,7 @@ void Cycle::master_process_cycle()
             break;
 
         default:
+
             m_worker_processes[i].m_pid = pid;
             break;
         }
@@ -195,7 +199,7 @@ Int Cycle::open_listening_sockets()
 
         Connection *conn = g_connections->get_connection(ls.m_fd);
         if (conn == nullptr) {
-            log_error(LogLevel::alert, "(%s: %d) get_connection 失败\n", __FILE__, __LINE__);
+            log_error(LogLevel::info, "Line %d in file \"%s\"\n", __LINE__, __FILE__);
             return ERROR;
         }
 
@@ -206,12 +210,12 @@ Int Cycle::open_listening_sockets()
         Event *rev = conn->m_read_event;
         rev->m_accept = true;
         rev->m_deferred_accept = ls.m_deferred_accept;
-        rev->set_handler(&Event::accept_handler);
+        rev->set_handler(&Event::accept_connection);
 
         if (ls.m_reuseport) {
             if (g_epoller->add_read_event(rev, 0) == ERROR)
             {
-                log_error(LogLevel::alert, "(%s: %d)\n", __FILE__, __LINE__);
+                log_error(LogLevel::info, "Line %d in file \"%s\"\nCycle::open_listening_sockets() 失败", __LINE__, __FILE__);
                 return ERROR;
             }
         }
@@ -225,8 +229,11 @@ Int Cycle::open_listening_sockets()
 
 
 
-Int Cycle::enable_all_accept_events() 
-{
+Int Cycle::enable_all_accept_events() {
+
+    LOG_ERROR(LogLevel::info, "Cycle::enable_all_accept_events() 开始\n"
+                        " ==== %s %d", __FILE__, __LINE__);
+
     for (int i = 0; i < m_listening_sockets.size(); ++i) {
 
         Listening *ls = &m_listening_sockets[i];
@@ -237,6 +244,9 @@ Int Cycle::enable_all_accept_events()
         }
 
         if (g_epoller->add_read_event(conn->m_read_event, 0) == ERROR) {
+
+            LOG_ERROR(LogLevel::alert, "Cycle::enable_all_accept_events() 开始\n"
+                        " ==== %s %d", __FILE__, __LINE__);
             return ERROR;
         }
     }
@@ -246,6 +256,9 @@ Int Cycle::enable_all_accept_events()
 
 Int Cycle::disable_all_accept_events()
 {
+    LOG_ERROR(LogLevel::info, "Cycle::disable_all_accept_events() 开始\n"
+                        " ==== %s %d", __FILE__, __LINE__);
+
     for (int i = 0; i < m_listening_sockets.size(); ++i) {
         
         Listening *ls = &m_listening_sockets[i];
@@ -256,6 +269,9 @@ Int Cycle::disable_all_accept_events()
         }
 
         if (g_epoller->del_read_event(conn->m_read_event, false) == ERROR) {
+
+            LOG_ERROR(LogLevel::info, "\"Cycle::disable_all_accept_events() 失败\"\n"
+                        " ==== %s %d", __FILE__, __LINE__);
             return ERROR;
         }
     }

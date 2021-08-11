@@ -12,18 +12,66 @@
 #include "Pool.h"
 #include "Timer.h"
 
-void Event::accept_handler()
+Int Event::add_read_event(unsigned flags)
 {
+    return g_epoller->add_read_event(this, flags);
+}
+
+Int Event::del_read_event(bool close)
+{
+    return g_epoller->del_read_event(this, close);
+}
+
+Int Event::add_write_event(unsigned flags)
+{
+    return g_epoller->add_write_event(this, flags);
+}
+
+Int Event::del_write_event(bool close)
+{
+    return g_epoller->del_write_event(this, close);
+}
+
+void Event::add_timer(mSec timer)
+{
+    g_epoller->add_timer(this, timer);
+}
+
+void Event::del_timer()
+{
+    g_epoller->del_timer(this);
+}
+
+void Event::add_posted_event()
+{
+    g_epoller->add_posted_event(this);
+}
+
+
+void Event::del_posted_event()
+{
+    g_epoller->del_posted_event(this);
+}
+
+
+void Event::accept_connection() {
+
+    LOG_ERROR(LogLevel::info, "Event::accept_connection() 开始\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
+
     if (m_timeout) {
-        if (g_cycle->enable_all_accept_events() != OK)
-        {
+
+        if (g_cycle->enable_all_accept_events() != OK) {
+
+            LOG_ERROR(LogLevel::error, "Event::accept_connection() 失败\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
             return;
         }
+
         m_timeout = false;
     }
 
-    Connection *const ls_conn = m_connection;
-    Listening *ls = ls_conn->m_listening;
+    Listening *ls = m_connection->m_listening;
 
     m_ready = false;
 
@@ -36,66 +84,76 @@ void Event::accept_handler()
         if (s == -1) {
 
             int err = errno;
-            switch (err) 
-            {
+            
+            switch (err) {
+
             case EAGAIN:
-                // log_error0(LogLevel::debug, "accept() not ready.\n");
                 return;
 
             case ECONNABORTED:
-                log_error(LogLevel::debug, "(%s: %d) ECONNABORTED \n", 
-                                            __FILE__, __LINE__);
+
+                LOG_ERROR(LogLevel::info, "errno %d: %s\n"
+                        " ==== %s %d", err, strerror(err), __FILE__, __LINE__);
+
                 if (m_available_n) {
                     continue;
                 }
+
                 break;
             
             case EMFILE:
             case ENFILE:
-                if (err == EMFILE) {
-                    log_error(LogLevel::debug, "(%s: %d) ===> Too many open files.\n", 
-                        __FILE__, __LINE__);
 
-                } else {
-                    log_error(LogLevel::debug, "(%s: %d) ===> File table overflow.\n", 
-                        __FILE__, __LINE__);
-                }
+                LOG_ERROR(LogLevel::info, "errno %d: %s\n"
+                        " ==== %s %d", err, strerror(err), __FILE__, __LINE__);
 
                 if (g_cycle->disable_all_accept_events() != OK) {
+                    
+                    LOG_ERROR(LogLevel::alert, "Event::accept_connection() 失败\n"
+                        " ==== %s %d", __FILE__, __LINE__);
+
                     return;
                 }
 
                 g_epoller->add_timer(this, ACCEPT_DELAY);
                 break;
             }
+
             return;
         }
-        
-        /* s != -1 */
-        log_error(LogLevel::info, "worker %ld pid %d: 新的连接 (%s: %d)\n",  
-            g_cycle->worker_id(),  g_process->m_pid, __FILE__, __LINE__);
         
         if (sa.sa_family == AF_INET) {
             sockaddr_in *sin = reinterpret_cast<sockaddr_in*>(&sa);
             u_char *uc = reinterpret_cast<u_char*>(&sin->sin_addr.s_addr);
-            log_error(LogLevel::info, " %ud.%ud.%ud.%ud : %d (%s: %d)\n", uc[0], uc[1], uc[2], uc[3], ntohs(sin->sin_port), __FILE__, __LINE__); 
+            // log_error(LogLevel::info, " %ud.%ud.%ud.%ud : %d (%s: %d)\n", uc[0], uc[1], uc[2], uc[3], ntohs(sin->sin_port), __FILE__, __LINE__); 
         }
 
         Connection *c = g_connections->get_connection(s);
+
         if (c == nullptr) {
-            log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
+
+            LOG_ERROR(LogLevel::info, "Connections::get_connection() 失败\n"
+                        " ==== %s %d", __FILE__, __LINE__);
+
             if (close(s) == -1) {
-                log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
+                int err = errno;
+                LOG_ERROR(LogLevel::info, "::close() 失败, errno %d: %s\n"
+                        " ==== %s %d", err, strerror(err), __FILE__, __LINE__);
             }
             return;
         }
 
         c->m_type = SOCK_STREAM;
         
-        c->m_sockaddr = static_cast<sockaddr*>(malloc(sizeof(sockaddr)));
+        c->m_sockaddr = static_cast<sockaddr*>(c->m_pool.malloc(sizeof(sockaddr)));
         
         if (c->m_sockaddr == nullptr) {
+
+            LOG_ERROR(LogLevel::alert, "Event::accept_connection() 失败\n"
+                        " ==== %s %d", __FILE__, __LINE__);
+
             c->close_accepted_connection();
+            
             return;
         }
 
@@ -120,27 +178,34 @@ void Event::accept_handler()
             return;
         }
         
-        c->create_http_connection();
+        c->m_data.hc = c->create_http_connection();
+        
     } while(m_available_n);
 }
 
 void Event::empty_handler()
 {
+    LOG_ERROR(LogLevel::info, "Event::empty_handler() 开始\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
     return;
 }
 
 
-void Event::wait_http_request_handler()
+void Event::wait_http_request()
 {
+    LOG_ERROR(LogLevel::info, "Event::wait_http_request() 开始\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
     Connection *const c = m_connection;
     if (m_timeout) {
-        log_error(LogLevel::debug, "(%s: %d) client timed out\n", __FILE__, __LINE__);
+        LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败：事件超时\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
         c->close_http_connection();
         return;
     }
     
     if (c->m_close) {
-        log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
+        LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败：连接被关闭\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
         c->close_http_connection();
         return;
     }
@@ -152,6 +217,8 @@ void Event::wait_http_request_handler()
         buf = Buffer::create_temp_buffer(&c->m_pool, CLIENT_HEADER_BUFFER_SIZE);
 
         if (buf == nullptr) {
+            LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
             c->close_http_connection();
             return;
         }
@@ -161,7 +228,10 @@ void Event::wait_http_request_handler()
     } else if (buf->m_start == nullptr) {
 
         buf->m_start = static_cast<u_char*>(c->m_pool.malloc(CLIENT_HEADER_BUFFER_SIZE));
+
         if(buf->m_start == nullptr) {
+            LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败\n"
+                        " ==== %s %d", __FILE__, __LINE__);
             c->close_http_connection();
             return;
         }
@@ -176,12 +246,18 @@ void Event::wait_http_request_handler()
     if (n == AGAIN) {
         
         if (!m_timer_set) {
-            g_epoller->add_timer(this, CLIENT_HEADER_TIMEOUT);
+            LOG_ERROR(LogLevel::info, "Event::add_timer(CLIENT_HEADER_TIMEOUT)\n"
+                        " ==== %s %d", __FILE__, __LINE__);
+
+            add_timer(CLIENT_HEADER_TIMEOUT);
             g_connections->reusable_connection(c, true);
         }
 
         if (!m_active && !m_ready) {
-            if (g_epoller->add_read_event(this, EPOLLET) == ERROR) {
+            if (g_epoller->add_read_event(this, EPOLLET) == ERROR)
+            {
+                LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败\n"
+                        " ==== %s %d", __FILE__, __LINE__);
                 c->close_http_connection();
                 return;
             }
@@ -189,7 +265,6 @@ void Event::wait_http_request_handler()
         /*
          * We are trying to not hold c->buffer's memory for an idle connection.
          */
-
         c->m_pool.free(buf->m_start);
         buf->m_start = nullptr;
 
@@ -197,13 +272,18 @@ void Event::wait_http_request_handler()
     }
 
     if (n == ERROR) {
-        log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
+
+        LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败\n"
+                        " ==== %s %d", __FILE__, __LINE__);
         c->close_http_connection();
         return;
     }
 
     if (n == 0) {
-        log_error(LogLevel::debug, "    客户端关闭了连接 (%s: %d)\n", __FILE__, __LINE__);
+
+        LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败: "
+                                    "客户端关闭了连接\n"
+                                    " ==== %s %d", __FILE__, __LINE__);
         c->close_http_connection();
         return;
     }
@@ -213,8 +293,10 @@ void Event::wait_http_request_handler()
     g_connections->reusable_connection(c, false);
 
     HttpRequest *r = c->create_http_request();
+
     if (r == nullptr) { 
-        log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
+        LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败\n"
+                        " ==== %s %d", __FILE__, __LINE__);
         c->close_http_connection();
         return;
     }
@@ -226,9 +308,12 @@ void Event::wait_http_request_handler()
 }
 
 void Event::http_request_handler() {
+    
     Connection *const c = m_connection;
     
     if (c->m_close) {
+        LOG_ERROR(LogLevel::info, "Event::http_request_handler() 开始\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
         c->m_data.r->m_main_request->m_count++;
         c->terminate_http_request(0);
         c->run_posted_http_requests();

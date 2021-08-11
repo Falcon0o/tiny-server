@@ -9,16 +9,16 @@ public:
     Connections();
     ~Connections();
 
+    Connections(const Connections &)            = delete;
+    Connections& operator=(const Connections &) = delete;
+    Connections(Connections &&)                 = delete;
+    Connections& operator=(Connections &&)      = delete;
+
     Connection *get_connection(int fd);
     void free_connection(Connection *c);
     void reusable_connection(Connection *c, bool reusable);
 
 private:
-    Connections(const Connections &) = delete;
-    Connections& operator=(const Connections &) = delete;
-
-    Connections(Connections &&) = delete;
-    Connections& operator=(Connections &&) = delete;
 
     void drain_connections();
 

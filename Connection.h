@@ -26,18 +26,19 @@ enum {
 class Connection {
 
 public:
-    Connection()  = default;
-    ~Connection()  = default;
+    Connection()    = default;
+    ~Connection()   = default;
 
-    Connection(const Connection &) = delete;
-    Connection& operator=(const Connection &) = delete;
-    Connection(Connection &&) = delete;
-    Connection& operator=(Connection &&) = delete;
+    Connection(const Connection &)              = delete;
+    Connection& operator=(const Connection &)   = delete;
+    Connection(Connection &&)                   = delete;
+    Connection& operator=(Connection &&)        = delete;
 
-    void free();
+    void free_connection();
+    void reusable_connection(bool reusable);
+    void close_connection();
 
-
-    void create_http_connection();
+    HttpConnection *create_http_connection();
     void finalize_http_connection();  // ngx_http_finalize_connection
     void close_http_connection();
     void close_accepted_connection();
@@ -48,7 +49,7 @@ public:
     void close_http_request(Int rc); // ngx_http_close_request
     void free_http_request(Int rc); // ngx_http_free_request
 
-    void close_connection();
+    
     void set_http_keepalive(); // ngx_http_set_keepalive
     void set_http_lingering_close(); // ngx_http_set_lingering_close
 

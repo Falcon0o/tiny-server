@@ -1,55 +1,28 @@
 #ifndef _CONFIG_H_INCLUDED_
 #define _CONFIG_H_INCLUDED_
 
-#include <assert.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <stdio.h>
-#include <string.h>
-
-#include <sys/epoll.h>
-#include <sys/fcntl.h>
-#include <sys/ioctl.h>
-#include <sys/sendfile.h>
-#include <sys/signal.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <sys/uio.h>
-#include <time.h>
-
-#include <unistd.h>
-
-#include <forward_list>
-#include <list>
-#include <set>
-#include <map>
-#include <unordered_map>
-#include <vector>
-#include <functional>
-
-
+#include "LinuxConfig.h"
+#include "Types.h"
 #include "Setting.h"
-
-
-extern class Cycle          *g_cycle;
-extern class Process        *g_process;
-extern class Epoller        *g_epoller;
-extern class Connections    *g_connections;
-extern class Timer          *g_timer;
-
-extern Int               g_worker_id;
-extern int               g_pagesize;
-extern mSec              g_curr_msec;
-
-
+#include "GlobalVal.h"
 enum class LogLevel {
-    alert = 2, 
-    crit = 3,
-    error, warning, info, debug
+    debug = 0,
+    info = 1,
+    alert = 2,
+    error = 3
 };
 
-#define log_error(level, log, ...)      printf(log, __VA_ARGS__); fflush(stdout);
-#define log_error0(level, log)          printf(log); fflush(stdout);
+
+#define LOG_ERROR(level, ...)               \
+    fprintf(g_log_file, __VA_ARGS__);       \
+    if (level >= LogLevel::alert) {         \
+        fflush(g_log_file);                 \
+    }
+
+#define log_error(...)
+#define log_error0(...)
+// #define LOG_ERROR_0(level, log)  fprintf(g_log_file, log); 
+
 
 extern const void *ERROR_ADDR_token;
 #define ERROR_ADDR(type)  reinterpret_cast<type*>(const_cast<void*>(ERROR_ADDR_token))
@@ -92,7 +65,7 @@ extern const void *DECLINED_ADDR_token;
 #define     INTERNAL_SERVER_ERROR       500
 #define     VERSION_NOT_SUPPORTED       505
 
-void debug_point();
+// void debug_point();
 
 #define     LF     (u_char) '\n'
 #define     CR     (u_char) '\r'

@@ -1,25 +1,7 @@
 #ifndef _SETTING_H_INCLUDED_
 #define _SETTING_H_INCLUDED_
 
-#include <sys/types.h>
-#include <stdint.h>
-
-#define MAX_TIME_T_VALUE    9223372036854775807LL
-#define MAX_OFF_T_LEN       (sizeof("-9223372036854775808") - 1)
-#define MAX_OFF_T_VALUE     9223372036854775807LL
-#define MAX_TIME_T_LEN      (sizeof("-9223372036854775808") - 1)
-#define MAX_SENDFILE_SIZE   2147483647L
-#define IOVS_PREALLOCATE    64
-
-using Int       = intptr_t;
-using uInt      = uintptr_t;
-using mSec      = uInt;
-
-// enum {
-//     UNSET   =   0,
-//     SET     =   1,
-//     DISABLE =   2
-// };
+#include "Types.h"
 
 constexpr size_t WORKER_CONNECTIONS = 512;
 
@@ -45,7 +27,7 @@ constexpr char PREFIX[] = "./resource";
 constexpr char DEFAULT_CONTEXT_TYPE[] = "text/plain";
 
 constexpr size_t TIME_SLOTS = 64;
-
+constexpr size_t IOVS_PREALLOCATE = 64;
 /* 是否对超时的连接发送 RST */
 constexpr bool RESET_TIMEDOUT_CONNECTION = true;
 constexpr bool DAEMONIZED = false;
@@ -59,11 +41,6 @@ constexpr mSec CLIENT_HEADER_TIMEOUT = 60000;
 constexpr mSec TIMER_LAZY_DELAY = 300;
 constexpr mSec SEND_TIMEOUT = 60000;
 
-enum {
-    HTTP_LINGERING_OFF      = 0,
-    HTTP_LINGERING_ON       = 1,
-    HTTP_LINGERING_ALWAYS   = 2
-};
 
 constexpr uInt HTTP_LINGERING = HTTP_LINGERING_ON;
 constexpr mSec HTTP_LINGERING_TIME = 30000;

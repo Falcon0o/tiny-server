@@ -9,8 +9,20 @@ class Connection;
 class Event 
 {
 public: 
-    typedef void(Event::*Handler)();
 
+    Int add_read_event(unsigned flags); 
+    Int del_read_event(bool close);
+
+    Int add_write_event(unsigned flags); 
+    Int del_write_event(bool close);
+
+    void add_timer(mSec timer);
+    void del_timer();
+
+    void add_posted_event();
+    void del_posted_event();
+
+    typedef void(Event::*Handler)();
 
     unsigned            m_instance:1;
     unsigned            m_closed:1;
@@ -43,8 +55,8 @@ public:
         ee->data.ptr = (void *) ((uintptr_t) c | m_instance);
     }
 
-    void    accept_handler();
-    void    wait_http_request_handler(); 
+    void    accept_connection();
+    void    wait_http_request(); 
     void    process_http_request_line_handler(); // ngx_http_process_request_line
     void    process_http_request_headers_handler();
     void    http_request_handler();

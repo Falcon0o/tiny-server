@@ -1,5 +1,8 @@
 #include "File.h"
 
+
+FILE *g_log_file = nullptr;
+
 OpenFileInfo::OpenFileInfo()
 :   
 #define O(member, default) m_##member(default),

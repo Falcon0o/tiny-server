@@ -17,7 +17,7 @@ void *Pool::malloc(size_t s, Deleter deleter)
     void *ans = ::malloc(s);
     if (ans) {
         m_pool.insert({ans, deleter});
-    }
+    } 
     return ans;
 }
 

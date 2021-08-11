@@ -44,9 +44,15 @@ void Connections::free_connection(Connection *c)
 
 Connection *Connections::get_connection(int fd) 
 {
+    LOG_ERROR(LogLevel::info, "Connections::get_connection() 开始\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
+
     drain_connections();
 
     if (m_free_connections == nullptr) {
+        LOG_ERROR(LogLevel::info, "Connections::get_connection() 失败："
+                        "连接池中无可用连接\n"
+                        " ==== %s %d", __FILE__, __LINE__);
         return nullptr;
     }
 
@@ -54,6 +60,7 @@ Connection *Connections::get_connection(int fd)
     m_free_connections = c->m_data.c;
     --m_free_connections_n;
     
+    c->m_data.c = nullptr;
 
     Event *rev = c->m_read_event;
     Event *wev = c->m_write_event;
@@ -83,6 +90,9 @@ Connection *Connections::get_connection(int fd)
 
 void Connections::drain_connections()
 {
+    LOG_ERROR(LogLevel::info, "Connections::drain_connections() 开始\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
+
     if (m_free_connections_n > CONNECTIONS_SLOT / 16
         || m_reusable_connections_n == 0) 
     {

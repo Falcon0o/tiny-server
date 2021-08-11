@@ -11,34 +11,45 @@
 #include "Timer.h"
 
 
-void Connection::free()
+void Connection::free_connection()
 {
-    m_pool.~Pool();
     g_connections->free_connection(this);
 }
 
-
-void Connection::create_http_connection()
+void Connection::reusable_connection(bool reusable) 
 {
-    m_data.v = m_pool.malloc(sizeof(HttpConnection));
+    g_connections->reusable_connection(this, false);
+}
+
+HttpConnection *Connection::create_http_connection() {
+
+    LOG_ERROR(LogLevel::info, "Connection::create_http_connection() 开始\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
+
+    HttpConnection *hc = (HttpConnection*)m_pool.malloc(sizeof(HttpConnection));
     
-    if (m_data.v == nullptr) {
+    if (hc == nullptr) {
+        LOG_ERROR(LogLevel::error, "Connection::create_http_connection() 失败\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
         close_http_connection();
-        return;
+        return nullptr;
     }
 
-    new (m_data.v)HttpConnection;
+    m_data.hc = new (hc)HttpConnection;
     
-    m_read_event->set_handler(&Event::wait_http_request_handler);
+    m_read_event->set_handler(&Event::wait_http_request);
     m_write_event->set_handler(&Event::empty_handler);
 
     if (m_read_event->m_ready) {
+
         m_read_event->run_handler();
-        return;
+        return hc;
     }
     
-    g_epoller->add_timer(m_read_event, CLIENT_HEADER_TIMEOUT);
-    g_connections->reusable_connection(this, true);
+    m_read_event->add_timer(CLIENT_HEADER_TIMEOUT);
+
+    reusable_connection(true);
+    return hc;
 }
 
 void Connection::finalize_http_connection()
@@ -78,21 +89,25 @@ void Connection::finalize_http_connection()
 void Connection::close_http_connection() 
 {
     m_destroyed = true;
+
     close_connection();
+
     m_pool.destroy_pool();
     m_data.c = nullptr;
 }
 
 
-void Connection::close_accepted_connection()
-{
-    free();
+void Connection::close_accepted_connection(){
+
+    free_connection();
 
     int fd = m_fd;
     m_fd = -1;
     
     if (::close(fd) == -1) {
-        log_error(LogLevel::alert, "%s: %d\n", __FILE__, __LINE__);
+        int err = errno;
+        LOG_ERROR(LogLevel::info, "::close() 失败, errno %d: %s\n"
+                " ==== %s %d\n", err, strerror(err), __FILE__, __LINE__);
     }
 }  
 
@@ -102,7 +117,8 @@ void Connection::close_accepted_connection()
 void Connection::close_connection()
 {
     if (m_fd == -1) {
-        log_error(LogLevel::alert, "(%s: %d) connection already closed\n", __FILE__, __LINE__);
+        LOG_ERROR(LogLevel::info, "尝试关闭一个早已关闭的连接\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
         return;
     }
     
@@ -113,25 +129,23 @@ void Connection::close_connection()
     if (m_write_event->m_timer_set) {
         g_epoller->del_timer(m_write_event);
     }
-
+    
     if (!m_shared) {
         g_epoller->del_connection(this, true);
     }
 
-    // TODO
-    //  if (c->read->posted) {
-    //     ngx_delete_posted_event(c->read);
-    // }
+    if (m_read_event->m_posted) {
+        g_epoller->del_posted_event(m_read_event);
+    }
 
-    // if (c->write->posted) {
-    //     ngx_delete_posted_event(c->write);
-    // }
+    if (m_write_event->m_posted) {
+        g_epoller->del_posted_event(m_write_event);
+    }
 
     m_read_event->m_closed = true;
     m_write_event->m_closed = true;
 
-    g_connections->reusable_connection(this, false);
-    free();
+    free_connection();
 
     int fd = m_fd;
     m_fd = -1;
@@ -142,16 +156,16 @@ void Connection::close_connection()
 
     if (::close(fd) == -1) {
         int err = errno;
-        if (err == ENOTCONN || err == ECONNRESET)
-        {
-            // TODO
-        }
-        log_error(LogLevel::alert, "(%s: %d) errno: %d\n", __FILE__, __LINE__, err);
+        LOG_ERROR(LogLevel::info, "::close() 失败, errno %d: %s\n"
+                        " ==== %s %d\n", err, strerror(err), __FILE__, __LINE__);
     }
 }
 
 ssize_t Connection::recv_to_buffer(u_char *last, u_char *end)
 {
+    // LOG_ERROR(LogLevel::info, "Connection::recv_to_buffer() 开始\n"
+    //                     " ==== %s %d\n", __FILE__, __LINE__);
+
     Event *rev = m_read_event;
 
     if (rev->m_available_n == 0 && !rev->m_pending_eof) {
@@ -166,12 +180,15 @@ ssize_t Connection::recv_to_buffer(u_char *last, u_char *end)
         n = ::recv(m_fd, last, end - last, 0);
 
         if (n == 0) {
+            LOG_ERROR(LogLevel::info, "Connection::recv_to_buffer()：读到 EOF\n"
+                        " ==== %s %d\n", __FILE__, __LINE__);
             rev->m_ready = false;
             rev->m_eof = true;
             return 0;
         }
 
         if (n > 0) {
+
             if (rev->m_available_n >= 0) {
                 rev->m_available_n -= n;
                 
@@ -186,19 +203,26 @@ ssize_t Connection::recv_to_buffer(u_char *last, u_char *end)
 
                 if (ioctl(m_fd, FIONREAD, &nread) == -1) {
                     n = ERROR;
-                    log_error(LogLevel::alert, "(%s: %d) ioctl(FIONREAD) 失败\n", __FILE__, __LINE__);
+                    int err = errno;
+                    LOG_ERROR(LogLevel::alert, "ioctl(FIONREAD) 失败, errno %d: %s\n"
+                        " ==== %s %d\n", err, strerror(err),__FILE__, __LINE__);
                     break;
                 }
                 rev->m_available_n = nread;
             }
 
             if (n < static_cast<ssize_t>(end - last)) {
+
                 if (!rev->m_pending_eof) {
+
                     rev->m_ready = false;
                 }
                 rev->m_available_n = 0;
             }
 
+            LOG_ERROR(LogLevel::info, "Connection::recv_to_buffer()：读取 %ld 字节数据%s\n"
+                                        " ==== %s %d\n", n, rev->m_pending_eof? " + EOF"
+                                        : "", __FILE__, __LINE__);
             return n;
         }
 
@@ -364,7 +388,6 @@ BufferChain *Connection::sendfile_from_buffer_chain(BufferChain *in, off_t limit
             aim_sent += file_size;
 
             if (file_size == 0) {
-                debug_point();
                 return ERROR_ADDR(BufferChain);
             }
 
@@ -657,6 +680,9 @@ void Connection::set_http_keepalive()
     m_write_event->set_handler(&Event::empty_handler);
 
     if (b->m_pos < b->m_last) {
+        LOG_ERROR(LogLevel::error, "浏览器开启 pipeline\n"
+                        " ==== %s %d", __FILE__, __LINE__);                   
+
         HttpRequest *r = create_http_request();
         if (r == nullptr) {
             close_http_connection();
@@ -750,6 +776,7 @@ void Connection::set_http_keepalive()
     }
 
     m_idle = true;
+
     g_connections->reusable_connection(this, true);
     g_epoller->add_timer(m_read_event, KEEPALIVE_TIMEOUT);
 
@@ -800,6 +827,8 @@ void Connection::set_http_lingering_close()
 
 ssize_t Connection::sendfile_from_buffer(Buffer *buf, size_t size)
 {
+    // LOG_ERROR(LogLevel::info, "Connection::sendfile_from_buffer() 开始\n"
+    //                     " ==== %s %d\n", __FILE__, __LINE__);
     ssize_t n;
     off_t offset = buf->m_file_pos;
 
@@ -834,6 +863,8 @@ ssize_t Connection::sendfile_from_buffer(Buffer *buf, size_t size)
         log_error(LogLevel::info, "(%s: %d) sendfile() failed, file was truncated\n", __FILE__, __LINE__);
         return ERROR;
     }
+    LOG_ERROR(LogLevel::info, "Connection::sendfile_from_buffer()：发送 %ld 字节数据\n"
+                                        " ==== %s %d\n", n, __FILE__, __LINE__);
     return n;
 }
 

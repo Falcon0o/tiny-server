@@ -50,7 +50,7 @@ BufferChain *IOVector::fill_with_output_chain(BufferChain &in, size_t limit)
         }
 
         if (!curr_buf->in_memory()) {
-            debug_point();
+            // debug_point();
             return ERROR_ADDR(BufferChain);
         }
 

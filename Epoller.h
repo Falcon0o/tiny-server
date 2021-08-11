@@ -31,6 +31,7 @@ private:
     int get_epoll_timeout() const;
     void expire_timers();
     void process_posted_events();
+    
     int                         m_epfd;
     epoll_event                 m_event_list[EPOLL_EVENTS_SLOT];
 
@@ -42,5 +43,6 @@ private:
     std::set<Event*, Cmp>      m_timer_rbtree;
     std::list<Event*>          m_posted_events;
 };
+
 
 #endif
