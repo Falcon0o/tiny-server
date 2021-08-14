@@ -7,7 +7,8 @@
 #include "Epoller.h"
 #include "Event.h"
 #include "File.h"
-
+#include "OpenFileInfo.h"
+#include "CachedOpenFile.h"
 HttpRequest::HttpRequest() 
 :   m_phase_engine(this) {}
 
@@ -857,12 +858,12 @@ Int HttpRequest::http_static_handler()
     StringSlice &&path = map_uri_to_path();
     log_error(LogLevel::info, "`%s\'\n", path.m_data);
 
-    OpenFileInfo ofi;
-    if (open_and_stat_file((char*)path.m_data, ofi) != OK) {
+    OpenFileInfo info;
+    if (CachedOpenFile::open_cached_file(path, info) == ERROR) {
         return INTERNAL_SERVER_ERROR;
     }
 
-    if (!ofi.m_is_file) {
+    if (!info.m_is_file) {
         return NOT_FOUND;
     }
 
@@ -877,8 +878,8 @@ Int HttpRequest::http_static_handler()
     }
 
     m_header_out.m_status               = HTTP_OK;
-    m_header_out.m_content_length_n     = ofi.m_size;
-    m_header_out.m_last_modified_time   = ofi.m_mtime;
+    m_header_out.m_content_length_n     = info.m_size;
+    m_header_out.m_last_modified_time   = info.m_mtime;
 
     if (m_header_out.m_content_type.m_len == 0) {
         if (m_uri_ext.m_len == 0) {
@@ -905,7 +906,7 @@ Int HttpRequest::http_static_handler()
         return rc;
     }
 
-    Buffer *file_buf = Buffer::create_file_buffer(m_pool, ofi);
+    Buffer *file_buf = Buffer::create_file_buffer(m_pool, info);
     if (file_buf == nullptr) {
         return INTERNAL_SERVER_ERROR;
     }

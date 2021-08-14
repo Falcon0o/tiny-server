@@ -4,6 +4,7 @@
 #include "File.h"
 #include "Timer.h"
 #include "Pool.h"
+#include "OpenFileInfo.h"
 
 Buffer *Buffer::create_temp_buffer(Pool *pool, size_t size)
 {

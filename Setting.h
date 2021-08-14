@@ -58,4 +58,15 @@ constexpr off_t MIN_DIRECTIO_SIZE    = MAX_OFF_T_VALUE; // 4 * 1024 * 1024;
     // ngx_conf_merge_msec_value(conf->resolver_timeout,
     //                           prev->resolver_timeout, 30000);
 
+
+constexpr time_t    OPEN_FILE_CACHE_VALID = 60;
+constexpr time_t    OPEN_FILE_CACHE_INACTIVE = 60;
+
+constexpr uInt      OPEN_FILE_CACHE_MAX = 3;
+constexpr uInt      OPEN_FILE_CACHE_MIN_USES = 1;
+
+constexpr rlim_t     WORKER_RLIMIT_NOFILE    = 0;
+constexpr rlim_t     WORKER_RLIMIT_CORE      = 10000;
+
+
 #endif

@@ -7,6 +7,7 @@ extern class Process        *g_process;
 extern class Epoller        *g_epoller;
 extern class Connections    *g_connections;
 extern class Timer          *g_timer;
+extern class OpenFileCache  *g_open_file_cache;
 
 extern Int               g_worker_id;
 extern int               g_pagesize;

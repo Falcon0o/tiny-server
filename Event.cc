@@ -180,6 +180,19 @@ void Event::accept_connection() {
         
         c->m_data.hc = c->create_http_connection();
         
+        if (c->m_data.hc == nullptr) {
+            c->close_http_connection();
+            continue;
+        }
+
+        if (c->m_read_event->m_ready) {
+            c->m_read_event->run_handler();
+
+        } else {
+            c->m_read_event->add_timer(CLIENT_HEADER_TIMEOUT);
+            c->reusable_connection(true);
+        }
+        
     } while(m_available_n);
 }
 

@@ -30,7 +30,7 @@ extern const void *ERROR_ADDR_token;
 extern const void *DECLINED_ADDR_token;
 #define DECLINED_ADDR(type)  reinterpret_cast<type*>(const_cast<void*>(DECLINED_ADDR_token))
 
-
+void debug_point();
 
 #define     DECLINED    -5
 #define     DONE        -4

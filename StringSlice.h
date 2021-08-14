@@ -3,6 +3,7 @@
 
 #include "Config.h"
 
+
 class StringSlice {
 public:
     StringSlice();
@@ -13,10 +14,16 @@ public:
     StringSlice(StringSlice &&);
 
     size_t hash()const;
+    uint32_t crc32_long() const;
+
+    // bool operator<(const StringSlice &) const;
     bool operator==(const char*) const;
     StringSlice &operator=(const char *c);
     u_char          *m_data;
     size_t           m_len;
+
+    
+    
 };
 
 #define STRING_SLICE(c) StringSlice((u_char*)c, sizeof(c) - 1)

@@ -26,7 +26,7 @@ Int Epoller::create1()
 {
     m_epfd = epoll_create1(0);
     if (m_epfd == -1) {
-        log_error(LogLevel::alert, "(%s: %d) \n", __FILE__, __LINE__);
+        debug_point();
         return ERROR;
     }
     return OK;
@@ -55,11 +55,7 @@ Int Epoller::add_read_event(Event *ev, unsigned flags)
 
     if (epoll_ctl(m_epfd, epoll_op, c->m_fd, &ee) == -1) {
         int err = errno;
-
-        LOG_ERROR(LogLevel::info, "::epoll_ctl(%s) 失败, errno %d: %s\n"
-                        " ==== %s %d", 
-                        epoll_op == EPOLL_CTL_ADD? "EPOLL_CTL_ADD" : "EPOLL_CTL_MOD", 
-                        err, strerror(err), __FILE__, __LINE__);
+        debug_point();
         return ERROR;
     }
 
@@ -90,10 +86,7 @@ Int Epoller::add_write_event(Event *ev, unsigned flags)
 
     if (epoll_ctl(m_epfd, epoll_op, c->m_fd, &ee) == -1) {
         int err = errno;
-        LOG_ERROR(LogLevel::info, "::epoll_ctl(%s) 失败, errno %d: %s\n"
-                        " ==== %s %d", 
-                        epoll_op == EPOLL_CTL_ADD? "EPOLL_CTL_ADD" : "EPOLL_CTL_MOD", 
-                        err, strerror(err), __FILE__, __LINE__);
+        debug_point();
         return ERROR;
     }
 
@@ -111,7 +104,7 @@ Int Epoller::add_connection(Connection *conn)
 
     if (epoll_ctl(m_epfd, EPOLL_CTL_ADD, conn->m_fd, &ee) == -1) {
         int err = errno;
-        log_error(LogLevel::alert, "(%s: %d) epoll_ctl(EPOLL_CTL_ADD) errno %d \n", __FILE__, __LINE__, err);
+        debug_point();
         return ERROR;
     }
 

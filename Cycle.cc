@@ -126,30 +126,7 @@ Int Cycle::init_signal_handlers()
 
 void Cycle::worker_process_cycle()
 {
-    g_epoller->create1();
-
-    if (TIME_RESOLUTION) {
-        struct sigaction  sa;
-        memset(&sa, 0, sizeof(struct sigaction));
-        sa.sa_handler = timer_signal_handler;
-        sigemptyset(&sa.sa_mask);
-        if (sigaction(SIGALRM, &sa, nullptr) == -1) {
-            log_error(LogLevel::alert, "(%s: %d) sigaction(SIGALRM) 失败\n", __FILE__, __LINE__);
-            return;
-        }
-
-        struct itimerval itv;
-        itv.it_interval.tv_sec = TIME_RESOLUTION / 1000;
-        itv.it_interval.tv_usec = (TIME_RESOLUTION % 1000) * 1000;
-        itv.it_value.tv_sec = TIME_RESOLUTION / 1000;
-        itv.it_value.tv_usec = (TIME_RESOLUTION % 1000) * 1000;
-
-        if (setitimer(ITIMER_REAL, &itv, NULL) == -1) {
-            log_error(LogLevel::alert, "(%s: %d) setitimer() 失败\n", __FILE__, __LINE__);
-        }
-    }
-
-    open_listening_sockets();
+    worker_process_before_cycle();
 
     for ( ;; )
     {
@@ -277,4 +254,50 @@ Int Cycle::disable_all_accept_events()
     }
 
     return OK;
+}
+
+void Cycle::worker_process_before_cycle() {
+
+    g_epoller->create1();
+
+    /* 时间粒度 */
+    if (TIME_RESOLUTION) {
+        struct sigaction  sa;
+        memset(&sa, 0, sizeof(struct sigaction));
+        sa.sa_handler = timer_signal_handler;
+        sigemptyset(&sa.sa_mask);
+        if (sigaction(SIGALRM, &sa, nullptr) == -1) {
+            log_error(LogLevel::alert, "(%s: %d) sigaction(SIGALRM) 失败\n", __FILE__, __LINE__);
+            return;
+        }
+
+        struct itimerval itv;
+        itv.it_interval.tv_sec = TIME_RESOLUTION / 1000;
+        itv.it_interval.tv_usec = (TIME_RESOLUTION % 1000) * 1000;
+        itv.it_value.tv_sec = TIME_RESOLUTION / 1000;
+        itv.it_value.tv_usec = (TIME_RESOLUTION % 1000) * 1000;
+
+        if (setitimer(ITIMER_REAL, &itv, NULL) == -1) {
+            log_error(LogLevel::alert, "(%s: %d) setitimer() 失败\n", __FILE__, __LINE__);
+        }
+    }
+
+    struct rlimit rlimit;
+    if (WORKER_RLIMIT_NOFILE > 0) {
+        rlimit.rlim_max = WORKER_RLIMIT_NOFILE;
+        rlimit.rlim_cur = WORKER_RLIMIT_NOFILE;
+        if (setrlimit(RLIMIT_NOFILE, &rlimit) == -1) {
+            debug_point();
+        }
+    }
+
+    if (WORKER_RLIMIT_CORE > 0) {
+        rlimit.rlim_max = WORKER_RLIMIT_CORE;
+        rlimit.rlim_cur = WORKER_RLIMIT_CORE;
+        if (setrlimit(RLIMIT_CORE, &rlimit) == -1) {
+            debug_point();
+        }
+    }
+    
+    open_listening_sockets();
 }

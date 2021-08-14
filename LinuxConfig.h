@@ -2,6 +2,8 @@
 #define _LINUX_CONFIG_H_INCLUDED_
 
 #include <assert.h>
+
+#include <sys/resource.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <stdio.h>

@@ -1,5 +1,6 @@
 #include "StringSlice.h"
 
+#include "Crc.h"
 StringSlice::StringSlice()
 :   StringSlice(nullptr, 0)
 {
@@ -67,7 +68,9 @@ StringSlice GetHttpStatusLines(uInt http_status)
     case VERSION_NOT_SUPPORTED:         return STRING_SLICE("505 HTTP Version Not Supported");
     // ("507 Insufficient Storage")
     }
-    log_error(LogLevel::info, "(%s %d) 未定义的 States Line", __FILE__, __LINE__);
+    
+    LOG_ERROR(LogLevel::alert, "未定义的 state Line: %ld\n"
+                        " ==== %s %d", http_status, __FILE__, __LINE__);
     return StringSlice();
 }
 
@@ -132,4 +135,9 @@ StringSlice &StringSlice::operator=(const StringSlice &right)
         m_len = right.m_len;
     }
     return *this;
+}
+
+uint32_t StringSlice::crc32_long() const {
+
+    return ::crc32_long(m_data, m_len);
 }

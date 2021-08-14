@@ -20,6 +20,8 @@ public:
 
     void master_process_cycle();
     void worker_process_cycle();
+    void worker_process_before_cycle();
+
     Int init_signal_handlers();
 
     void drain_connections();

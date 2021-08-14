@@ -27,7 +27,6 @@ size_t hash_string(const char *c) {
 }
 
 void debug_point() {
-    
     abort();
 }
 

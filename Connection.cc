@@ -31,24 +31,14 @@ HttpConnection *Connection::create_http_connection() {
     if (hc == nullptr) {
         LOG_ERROR(LogLevel::error, "Connection::create_http_connection() 失败\n"
                         " ==== %s %d\n", __FILE__, __LINE__);
-        close_http_connection();
         return nullptr;
     }
 
-    m_data.hc = new (hc)HttpConnection;
-    
+    new (hc)HttpConnection;
+
     m_read_event->set_handler(&Event::wait_http_request);
     m_write_event->set_handler(&Event::empty_handler);
-
-    if (m_read_event->m_ready) {
-
-        m_read_event->run_handler();
-        return hc;
-    }
     
-    m_read_event->add_timer(CLIENT_HEADER_TIMEOUT);
-
-    reusable_connection(true);
     return hc;
 }
 
@@ -500,14 +490,14 @@ void Connection::finalize_http_request(HttpRequest *r, Int rc)  // ngx_http_fina
 
             m_read_event->set_handler(&Event::http_request_handler);
             m_write_event->set_handler(&Event::http_request_handler);
-            assert(0);
+            debug_point();
             // ngx_http_finalize_request(r, ngx_http_special_response_handler(r, rc));
             return;
         }
     }
 
     if (r != r->m_main_request) {
-        assert(0);
+        debug_point();
     }
 
     if (r->m_buffered || m_buffered /*|| r->postponed*/) {
