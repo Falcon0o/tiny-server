@@ -87,19 +87,15 @@ Int Listening::open_listening_socket()
         return ERROR;
     }
 
-#define CloseSocketAndReturn(file, line)                                    \
-    log_error(LogLevel::alert, "(%s: %d) \n", file, line);                  \
-    if (close(m_fd) == -1) {                                                \
-        log_error(LogLevel::alert, "(%s: %d) close() 失败\n", file, line);  \
-    }                                                                       \
-    m_fd = -1;                                                              \
-    return ERROR;
-
     int onoff = 1;
     if (setsockopt(m_fd, SOL_SOCKET, SO_REUSEADDR, 
                                 &onoff, sizeof(int)) == -1) 
     {
-        CloseSocketAndReturn(__FILE__, __LINE__);
+        debug_point();
+        if (close(m_fd) == -1) {
+            debug_point();
+        }
+        return ERROR;
     }
 
     if (m_sockaddr.sa_family == AF_INET6) {
@@ -107,7 +103,7 @@ Int Listening::open_listening_socket()
         if (setsockopt(m_fd, IPPROTO_IPV6, IPV6_V6ONLY, 
                                 &onoff, sizeof(onoff)) == -1)
         {
-            log_error(LogLevel::alert, "(%s: %d) \n", __FILE__, __LINE__);
+            debug_point();
         }
     }
 
@@ -124,19 +120,35 @@ Int Listening::open_listening_socket()
         break;
 
     default:
-        CloseSocketAndReturn(__FILE__, __LINE__);
+        debug_point();
+        if (close(m_fd) == -1) {
+            debug_point();
+        }
+        return ERROR;
     }
 
     onoff = 1;
     if (ioctl(m_fd, FIONBIO, &onoff) == -1) {
-        CloseSocketAndReturn(__FILE__, __LINE__);
+        debug_point();
+        if (close(m_fd) == -1) {
+            debug_point();
+        }
+        return ERROR;
     }
     if (bind(m_fd, &m_sockaddr, socklen) == -1) {
-        CloseSocketAndReturn(__FILE__, __LINE__);
+        debug_point();
+        if (close(m_fd) == -1) {
+            debug_point();
+        }
+        return ERROR;
     }
 
     if (listen(m_fd, m_backlog) == -1) {
-        CloseSocketAndReturn(__FILE__, __LINE__);
+        debug_point();
+        if (close(m_fd) == -1) {
+            debug_point();
+        }
+        return ERROR;
     }
 
 /* 以下的设置即使失败不需要关闭 m_fd */
@@ -146,7 +158,7 @@ Int Listening::open_listening_socket()
         if (setsockopt(m_fd, SOL_SOCKET, SO_RCVBUF,
                                 &m_rcvbuf, sizeof(m_rcvbuf)) == -1)
         {
-            log_error(LogLevel::alert, "(%s: %d) \n", __FILE__, __LINE__);
+            debug_point();
         }
     }
 
@@ -156,7 +168,7 @@ Int Listening::open_listening_socket()
         if (setsockopt(m_fd, SOL_SOCKET, SO_KEEPALIVE,
                                 &onoff, sizeof(onoff)) == -1)
         {
-            log_error(LogLevel::alert, "(%s: %d) \n", __FILE__, __LINE__);
+            debug_point();
         }
     }
 
@@ -164,7 +176,7 @@ Int Listening::open_listening_socket()
         if (setsockopt(m_fd, SOL_SOCKET, SO_SNDBUF,
                                 &m_sndbuf, sizeof(m_sndbuf)) == -1)
         {
-            log_error(LogLevel::alert, "(%s: %d) \n", __FILE__, __LINE__);
+            debug_point();
         }
     }
 
@@ -174,7 +186,7 @@ Int Listening::open_listening_socket()
         if (setsockopt(m_fd, IPPROTO_TCP, TCP_KEEPIDLE,
                                 &m_keepidle, sizeof(m_keepidle)) == -1)
         {
-            log_error(LogLevel::alert, "(%s: %d) \n", __FILE__, __LINE__);
+            debug_point();
         }
     }
 
@@ -182,7 +194,7 @@ Int Listening::open_listening_socket()
         if (setsockopt(m_fd, IPPROTO_TCP, TCP_KEEPCNT,
                                 &m_keepcnt, sizeof(m_keepcnt)) == -1)
         {
-            log_error(LogLevel::alert, "(%s: %d) \n", __FILE__, __LINE__);
+            debug_point();
         }
     }
 
@@ -190,7 +202,7 @@ Int Listening::open_listening_socket()
         if (setsockopt(m_fd, IPPROTO_TCP, TCP_KEEPINTVL,
                                 &m_keepintvl, sizeof(m_keepintvl)) == -1)
         {
-            log_error(LogLevel::alert, "(%s: %d) \n", __FILE__, __LINE__);
+            debug_point();
         }
     }
 
@@ -198,7 +210,7 @@ Int Listening::open_listening_socket()
         if (setsockopt(m_fd, IPPROTO_TCP, TCP_FASTOPEN, 
                                 &m_fastopen, sizeof(m_fastopen)) == -1)
         {
-            log_error(LogLevel::alert, "(%s: %d) \n", __FILE__, __LINE__);
+            debug_point();
         }
     }
 
@@ -217,7 +229,7 @@ Int Listening::open_listening_socket()
         if (setsockopt(m_fd, IPPROTO_TCP, TCP_DEFER_ACCEPT,
                                 &timeout, sizeof(timeout)) == -1) 
         {
-            log_error(LogLevel::alert, "(%s: %d) \n", __FILE__, __LINE__);
+            debug_point();
         }
     }
     return OK;

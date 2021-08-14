@@ -23,14 +23,10 @@ void Connection::reusable_connection(bool reusable)
 
 HttpConnection *Connection::create_http_connection() {
 
-    LOG_ERROR(LogLevel::info, "Connection::create_http_connection() 开始\n"
-                        " ==== %s %d\n", __FILE__, __LINE__);
-
     HttpConnection *hc = (HttpConnection*)m_pool.malloc(sizeof(HttpConnection));
     
     if (hc == nullptr) {
-        LOG_ERROR(LogLevel::error, "Connection::create_http_connection() 失败\n"
-                        " ==== %s %d\n", __FILE__, __LINE__);
+        debug_point();
         return nullptr;
     }
 
@@ -96,8 +92,7 @@ void Connection::close_accepted_connection(){
     
     if (::close(fd) == -1) {
         int err = errno;
-        LOG_ERROR(LogLevel::info, "::close() 失败, errno %d: %s\n"
-                " ==== %s %d\n", err, strerror(err), __FILE__, __LINE__);
+        debug_point();
     }
 }  
 
@@ -107,8 +102,6 @@ void Connection::close_accepted_connection(){
 void Connection::close_connection()
 {
     if (m_fd == -1) {
-        LOG_ERROR(LogLevel::info, "尝试关闭一个早已关闭的连接\n"
-                        " ==== %s %d\n", __FILE__, __LINE__);
         return;
     }
     
@@ -146,16 +139,12 @@ void Connection::close_connection()
 
     if (::close(fd) == -1) {
         int err = errno;
-        LOG_ERROR(LogLevel::info, "::close() 失败, errno %d: %s\n"
-                        " ==== %s %d\n", err, strerror(err), __FILE__, __LINE__);
+        debug_point();
     }
 }
 
 ssize_t Connection::recv_to_buffer(u_char *last, u_char *end)
 {
-    // LOG_ERROR(LogLevel::info, "Connection::recv_to_buffer() 开始\n"
-    //                     " ==== %s %d\n", __FILE__, __LINE__);
-
     Event *rev = m_read_event;
 
     if (rev->m_available_n == 0 && !rev->m_pending_eof) {
@@ -170,8 +159,6 @@ ssize_t Connection::recv_to_buffer(u_char *last, u_char *end)
         n = ::recv(m_fd, last, end - last, 0);
 
         if (n == 0) {
-            LOG_ERROR(LogLevel::info, "Connection::recv_to_buffer()：读到 EOF\n"
-                        " ==== %s %d\n", __FILE__, __LINE__);
             rev->m_ready = false;
             rev->m_eof = true;
             return 0;
@@ -194,8 +181,7 @@ ssize_t Connection::recv_to_buffer(u_char *last, u_char *end)
                 if (ioctl(m_fd, FIONREAD, &nread) == -1) {
                     n = ERROR;
                     int err = errno;
-                    LOG_ERROR(LogLevel::alert, "ioctl(FIONREAD) 失败, errno %d: %s\n"
-                        " ==== %s %d\n", err, strerror(err),__FILE__, __LINE__);
+                    debug_point();
                     break;
                 }
                 rev->m_available_n = nread;
@@ -337,8 +323,7 @@ BufferChain *Connection::sendfile_from_buffer_chain(BufferChain *in, off_t limit
                      * and without the TCP_CORK
                      */
                     if (err != EINTR) {
-                        log_error(LogLevel::alert, "(%s: %d) setsockopt(!TCP_NODELAY) 失败\n", 
-                                    __FILE__, __LINE__);
+                        debug_point();
                         m_write_event->m_err = true;
                         return ERROR_ADDR(BufferChain);
                     }
@@ -355,8 +340,7 @@ BufferChain *Connection::sendfile_from_buffer_chain(BufferChain *in, off_t limit
                 {
                     int err = errno;
                     if (err != EINTR) {
-                        log_error(LogLevel::alert, "(%s: %d) setsockopt(TCP_CORK) 失败\n", 
-                                    __FILE__, __LINE__);
+                        debug_point();
                         m_write_event->m_err = true;
                         return ERROR_ADDR(BufferChain);
                     }
@@ -509,7 +493,7 @@ void Connection::finalize_http_request(HttpRequest *r, Int rc)  // ngx_http_fina
     }
 
     if (r != m_data.r) {
-        log_error(LogLevel::alert, "(%s: %d) http finalize non-active request\n", __FILE__, __LINE__);
+        debug_point();
         return;
     }
 
@@ -541,7 +525,7 @@ void Connection::finalize_http_request(HttpRequest *r, Int rc)  // ngx_http_fina
 void Connection::free_http_request(Int rc)
 {
     if (m_data.r->m_pool == nullptr) {
-        log_error(LogLevel::alert, "(%s: %d)  http request already closed\n", __FILE__, __LINE__);
+        debug_point();
         return;
     }
 
@@ -560,8 +544,7 @@ void Connection::free_http_request(Int rc)
             if (setsockopt(m_fd, SOL_SOCKET, SO_LINGER, 
                             &linger, sizeof(struct linger)) == -1)
             {
-                log_error(LogLevel::alert, "(%s, %d) setsockopt(SO_LINGER) failed",
-                            __FILE__, __LINE__);
+                debug_point();
             }
         }
     }
@@ -737,8 +720,7 @@ void Connection::set_http_keepalive()
         if (setsockopt(m_fd, IPPROTO_TCP, TCP_CORK,
                         &cork, sizeof(int)) == -1)
         {
-            log_error(LogLevel::alert, "(%s, %d) setsockopt(!TCP_CORK) failed",
-                        __FILE__, __LINE__);
+            debug_point();
             close_http_connection();
             return;
         }
@@ -755,8 +737,7 @@ void Connection::set_http_keepalive()
             if (setsockopt(m_fd, IPPROTO_TCP, TCP_NODELAY,
                             &tcp_nodelay, sizeof(int)) == -1)
             {
-                log_error(LogLevel::alert, "(%s, %d) setsockopt(TCP_NODELAY) failed",
-                        __FILE__, __LINE__);
+                debug_point();
                 close_http_connection();
                 return;
             }
@@ -800,7 +781,7 @@ void Connection::set_http_lingering_close()
     }
 
     if (shutdown(m_fd, SHUT_WR) == -1) {
-        log_error(LogLevel::alert, "(%s: %d) shutdown(SHUT_WR) 失败\n", __FILE__, __LINE__);
+        debug_point();
         close_http_request(0);
         return;
     }
@@ -817,8 +798,6 @@ void Connection::set_http_lingering_close()
 
 ssize_t Connection::sendfile_from_buffer(Buffer *buf, size_t size)
 {
-    // LOG_ERROR(LogLevel::info, "Connection::sendfile_from_buffer() 开始\n"
-    //                     " ==== %s %d\n", __FILE__, __LINE__);
     ssize_t n;
     off_t offset = buf->m_file_pos;
 
@@ -831,16 +810,14 @@ ssize_t Connection::sendfile_from_buffer(Buffer *buf, size_t size)
         switch (err) 
         {
         case EAGAIN:
-            log_error(LogLevel::info, "(%s: %d) sendfile() is not ready\n", __FILE__, __LINE__);
             return AGAIN;
         
         case EINTR:
-            log_error(LogLevel::info, "(%s: %d) sendfile() is interrupted\n", __FILE__, __LINE__);
             goto eintr;
 
         default:
             m_write_event->m_err = true;
-            log_error(LogLevel::info, "(%s: %d) sendfile() failed\n", __FILE__, __LINE__);
+            debug_point();
             return ERROR;
         }
     }
@@ -850,19 +827,17 @@ ssize_t Connection::sendfile_from_buffer(Buffer *buf, size_t size)
          * if sendfile returns zero, then someone has truncated the file,
          * so the offset became beyond the end of the file
          */
-        log_error(LogLevel::info, "(%s: %d) sendfile() failed, file was truncated\n", __FILE__, __LINE__);
+        LOG_ERROR(LogLevel::info, "(%s: %d) sendfile() failed, file was truncated\n", __FILE__, __LINE__);
         return ERROR;
     }
-    LOG_ERROR(LogLevel::info, "Connection::sendfile_from_buffer()：发送 %ld 字节数据\n"
-                                        " ==== %s %d\n", n, __FILE__, __LINE__);
     return n;
 }
 
 ssize_t Connection::write_from_iovec(IOVector *iov)
 {
     ssize_t n;
-    eintr:
 
+eintr:
     n = writev(m_fd, iov->data(), iov->size());
 
     if (n == -1)
@@ -871,16 +846,14 @@ ssize_t Connection::write_from_iovec(IOVector *iov)
         switch (err) 
         {
         case EAGAIN:
-            log_error(LogLevel::info, "(%s: %d)\n", __FILE__, __LINE__);
             return AGAIN;
         
         case EINTR:
-            log_error(LogLevel::info, "(%s: %d)\n", __FILE__, __LINE__);
             goto eintr;
 
         default: 
             m_write_event->m_err = true;
-            log_error(LogLevel::info, "(%s: %d) writev() failed\n", __FILE__, __LINE__);
+            debug_point();
             return ERROR;
         }
     }

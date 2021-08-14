@@ -63,7 +63,7 @@ Int process_header_host(HttpRequest *r, HttpHeadersIn::iterator iter)
     HttpHeadersIn::iterator &host_iter = r->m_header_in.m_host;
 
     if (r->m_header_in.m_headers.end() != host_iter) {
-        log_error(0, "(%s %d) 多次发送 host", __FILE__, __LINE__);
+        LOG_ERROR(LogLevel::info, "%s: %d  多次发送 host\n", __FILE__, __LINE__);
         return ERROR;
     }
 

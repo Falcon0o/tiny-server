@@ -19,8 +19,7 @@ enum class LogLevel {
         fflush(g_log_file);                 \
     }
 
-#define log_error(...)
-#define log_error0(...)
+
 // #define LOG_ERROR_0(level, log)  fprintf(g_log_file, log); 
 
 

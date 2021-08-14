@@ -29,8 +29,6 @@ Timer::Timer()
 
     (void) localtime_r(&m_cached_time[m_slot].m_sec, tm);
     m_cached_time[m_slot].m_gmtoff = tm->tm_gmtoff / 60;
-
-    // log_error(LogLevel::info, "%s\n", reinterpret_cast<char*>(m_cached_http_time[m_slot]));
 }
 
 Timer::~Timer() {}
@@ -64,8 +62,6 @@ void Timer::update_time()
 
     (void) localtime_r(&m_cached_time[m_slot].m_sec, tm);
     m_cached_time[m_slot].m_gmtoff = tm->tm_gmtoff / 60;
-
-    // log_error(LogLevel::info, "%s\n", reinterpret_cast<char*>(m_cached_http_time[m_slot]));
 }
 
 int Timer::get_http_time(struct tm *tm, u_char *buf)

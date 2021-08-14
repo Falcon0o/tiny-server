@@ -183,7 +183,7 @@ ssize_t HttpRequest::read_request_header()
     }
 
     if (can_read_ssize == 0) {
-        log_error(LogLevel::alert, "client prematurely closed connection (%s: %d)\n", __FILE__, __LINE__);
+        LOG_ERROR(LogLevel::alert, "client prematurely closed connection (%s: %d)\n", __FILE__, __LINE__);
     }
 
     if (can_read_ssize == 0 || can_read_ssize == ERROR) {
@@ -310,7 +310,7 @@ Int HttpRequest::parse_request_line()
                 parse_state = ParseState::check_uri_http_09;
                 break;
             default:
-                log_error(1, "暂不支持的协议版本 (%s: %d)", __FILE__, __LINE__);
+                LOG_ERROR(LogLevel::info, "暂不支持的协议版本 (%s: %d)", __FILE__, __LINE__);
                 return PARSE_INVALID_VERSION;
             }
             break;
@@ -346,7 +346,7 @@ Int HttpRequest::parse_request_line()
                 break;
             case CR:
             case LF:
-                log_error(1, "暂不支持的协议版本 (%s: %d)", __FILE__, __LINE__);
+                LOG_ERROR(LogLevel::info, "暂不支持的协议版本 (%s: %d)", __FILE__, __LINE__);
                 return PARSE_INVALID_VERSION;
             case 'H':
                 m_http_protocol_start = pos;
@@ -764,7 +764,7 @@ Int HttpRequest::process_request_header()
     if (m_header_in.m_host == m_header_in.m_headers.end()
         && m_http_version > 1000) 
     {
-        log_error(LogLevel::alert, "client sent HTTP/1.1 request without \"Host\" header (%s: %d)\n", __FILE__, __LINE__);
+        LOG_ERROR(LogLevel::alert, "client sent HTTP/1.1 request without \"Host\" header (%s: %d)\n", __FILE__, __LINE__);
         m_connection->finalize_http_request(this, BAD_REQUEST);
         return ERROR;
     }
@@ -856,7 +856,7 @@ Int HttpRequest::http_static_handler()
     }
 
     StringSlice &&path = map_uri_to_path();
-    log_error(LogLevel::info, "`%s\'\n", path.m_data);
+    LOG_ERROR(LogLevel::info, "`%s\'\n", path.m_data);
 
     OpenFileInfo info;
     if (CachedOpenFile::open_cached_file(path, info) == ERROR) {
@@ -1064,18 +1064,18 @@ Int HttpRequest::response_body_filter(BufferChain *in)
 
 void HttpRequest::discarded_request_body_handler()
 {
-    log_error(1, "未定义的空函数 (%s: %d)", __FILE__, __LINE__);
+    LOG_ERROR(LogLevel::info, "未定义的空函数 (%s: %d)", __FILE__, __LINE__);
 }
 
 Int HttpRequest::discard_request_body()
 {
-    log_error(1, "未定义的空函数 (%s: %d)", __FILE__, __LINE__);
+    LOG_ERROR(LogLevel::info, "未定义的空函数 (%s: %d)", __FILE__, __LINE__);
     return OK;
 }
 
 void HttpRequest::http_test_reading()
 {
-    log_error(1, "未定义的空函数 (%s: %d)", __FILE__, __LINE__);
+    LOG_ERROR(LogLevel::info, "未定义的空函数 (%s: %d)", __FILE__, __LINE__);
 }
 
 Int HttpRequest::set_write_handler()
@@ -1098,7 +1098,7 @@ Int HttpRequest::set_write_handler()
     }
 
     if (!wev->m_active && !wev->m_ready) {
-        if (g_epoller->add_read_event(wev, EPOLLET) == ERROR) {
+        if (g_epoller->add_write_event(wev, EPOLLET) == ERROR) {
             m_connection->close_http_request(INTERNAL_SERVER_ERROR);
             return ERROR;
         }

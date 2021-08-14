@@ -117,7 +117,7 @@ Int Cycle::init_signal_handlers()
 
     for (int i = 0; i < sizeof(signals) / sizeof(signals[0]); ++i) {
         if (sigaction(signals[i], &sa, nullptr) == -1) {
-            log_error(LogLevel::alert, "(%s: %d)\n", __FILE__, __LINE__);
+            debug_point();
             return ERROR;
         }
     }
@@ -176,7 +176,7 @@ Int Cycle::open_listening_sockets()
 
         Connection *conn = g_connections->get_connection(ls.m_fd);
         if (conn == nullptr) {
-            log_error(LogLevel::info, "Line %d in file \"%s\"\n", __LINE__, __FILE__);
+            LOG_ERROR(LogLevel::info, "%s %d, 无可用空闲连接\n", __FILE__, __LINE__);
             return ERROR;
         }
 
@@ -192,7 +192,7 @@ Int Cycle::open_listening_sockets()
         if (ls.m_reuseport) {
             if (g_epoller->add_read_event(rev, 0) == ERROR)
             {
-                log_error(LogLevel::info, "Line %d in file \"%s\"\nCycle::open_listening_sockets() 失败", __LINE__, __FILE__);
+                debug_point();
                 return ERROR;
             }
         }
@@ -233,9 +233,6 @@ Int Cycle::enable_all_accept_events() {
 
 Int Cycle::disable_all_accept_events()
 {
-    LOG_ERROR(LogLevel::info, "Cycle::disable_all_accept_events() 开始\n"
-                        " ==== %s %d", __FILE__, __LINE__);
-
     for (int i = 0; i < m_listening_sockets.size(); ++i) {
         
         Listening *ls = &m_listening_sockets[i];
@@ -246,9 +243,6 @@ Int Cycle::disable_all_accept_events()
         }
 
         if (g_epoller->del_read_event(conn->m_read_event, false) == ERROR) {
-
-            LOG_ERROR(LogLevel::info, "\"Cycle::disable_all_accept_events() 失败\"\n"
-                        " ==== %s %d", __FILE__, __LINE__);
             return ERROR;
         }
     }
@@ -267,7 +261,7 @@ void Cycle::worker_process_before_cycle() {
         sa.sa_handler = timer_signal_handler;
         sigemptyset(&sa.sa_mask);
         if (sigaction(SIGALRM, &sa, nullptr) == -1) {
-            log_error(LogLevel::alert, "(%s: %d) sigaction(SIGALRM) 失败\n", __FILE__, __LINE__);
+            debug_point();
             return;
         }
 
@@ -278,7 +272,7 @@ void Cycle::worker_process_before_cycle() {
         itv.it_value.tv_usec = (TIME_RESOLUTION % 1000) * 1000;
 
         if (setitimer(ITIMER_REAL, &itv, NULL) == -1) {
-            log_error(LogLevel::alert, "(%s: %d) setitimer() 失败\n", __FILE__, __LINE__);
+            debug_point();
         }
     }
 

@@ -26,7 +26,7 @@ Int Epoller::create1()
 {
     m_epfd = epoll_create1(0);
     if (m_epfd == -1) {
-        debug_point();
+        assert(0);
         return ERROR;
     }
     return OK;
@@ -55,7 +55,7 @@ Int Epoller::add_read_event(Event *ev, unsigned flags)
 
     if (epoll_ctl(m_epfd, epoll_op, c->m_fd, &ee) == -1) {
         int err = errno;
-        debug_point();
+        assert(0);
         return ERROR;
     }
 
@@ -86,7 +86,7 @@ Int Epoller::add_write_event(Event *ev, unsigned flags)
 
     if (epoll_ctl(m_epfd, epoll_op, c->m_fd, &ee) == -1) {
         int err = errno;
-        debug_point();
+        assert(0);
         return ERROR;
     }
 
@@ -104,7 +104,7 @@ Int Epoller::add_connection(Connection *conn)
 
     if (epoll_ctl(m_epfd, EPOLL_CTL_ADD, conn->m_fd, &ee) == -1) {
         int err = errno;
-        debug_point();
+        assert(0);
         return ERROR;
     }
 
@@ -146,13 +146,11 @@ Int Epoller::process_events_and_timers()
         if (err == EINTR) {
             if (g_process->m_sig_alarm) {
                 g_process->m_sig_alarm = 0;
-                // log_error(LogLevel::alert, "(%s: %d) 触发时钟中断\n", __FILE__, __LINE__);
                 return OK;
             }
-            log_error(LogLevel::info, "(%s: %d) epoll_wait() 因中断失败\n", __FILE__, __LINE__);
         
         } else {
-            log_error(LogLevel::alert, "(%s: %d) epoll_wait() 失败\n", __FILE__, __LINE__);
+            debug_point();
         }
 
         return ERROR;
@@ -162,8 +160,7 @@ Int Epoller::process_events_and_timers()
         if (timeout != -1) {
             return OK;
         }
-        log_error(LogLevel::alert, "(%s: %d) epoll_wait() returned no"
-                                "events without timeout\n", __FILE__, __LINE__);
+        debug_point();
         return ERROR;
     }
 
@@ -182,14 +179,13 @@ Int Epoller::process_events_and_timers()
              * the stale event from a file descriptor
              * that was just closed in this iteration
              */
-            log_error(LogLevel::alert, "(%s: %d) stale event \n", __FILE__, __LINE__);
+            LOG_ERROR(LogLevel::alert, "(%s: %d) stale event \n", __FILE__, __LINE__);
             continue;
         }
 
         uint32_t ee_events = ee.events;
 
         if (ee_events & (EPOLLERR|EPOLLHUP)) {
-            log_error(LogLevel::alert, "(%s: %d) EPOLLERR|EPOLLHUP\n", __FILE__, __LINE__);
             ee_events |= EPOLLIN|EPOLLOUT;
         }
         
@@ -205,7 +201,7 @@ Int Epoller::process_events_and_timers()
         Event *wev = conn->m_write_event;
         if ((ee_events & EPOLLOUT) && wev->m_active) {
             if (conn->m_fd == -1 || wev->m_instance != instance) {
-                log_error(LogLevel::alert, "(%s: %d) stale event \n", __FILE__, __LINE__);
+                LOG_ERROR(LogLevel::alert, "(%s: %d) stale event \n", __FILE__, __LINE__);
                 continue;
             }
             
@@ -248,9 +244,7 @@ Int Epoller::del_read_event(Event *ev, bool close)
 
     if (epoll_ctl(m_epfd, epoll_op, c->m_fd, &ee) == -1) {
         int err = errno;
-        LOG_ERROR(LogLevel::alert, "epoll_ctl(%s) 失败, errno %d: %s\n"
-                        " ==== %s %d", epoll_op == EPOLL_CTL_MOD ? "EPOLL_CTL_MOD" : "EPOLL_CTL_DEL",
-                        err, strerror(err),__FILE__, __LINE__);
+        debug_point();
         return ERROR;
     }
 
@@ -285,9 +279,7 @@ Int Epoller::del_write_event(Event *ev, bool close)
 
     if (epoll_ctl(m_epfd, epoll_op, c->m_fd, &ee) == -1) {
         int err = errno;
-        LOG_ERROR(LogLevel::alert, "epoll_ctl(%s) 失败, errno %d: %s\n"
-                        " ==== %s %d", epoll_op == EPOLL_CTL_MOD ? "EPOLL_CTL_MOD" : "EPOLL_CTL_DEL",
-                        err, strerror(err),__FILE__, __LINE__);
+        debug_point();
         return ERROR;
     }
 
@@ -350,7 +342,7 @@ Int Epoller::del_connection(Connection *c, bool close)
     ee.data.ptr = nullptr;
 
     if (epoll_ctl(m_epfd, epoll_op, c->m_fd, &ee) == -1) {
-        // log_error(LogLevel::alert, "(%s: %d) epoll_ctl(EPOLL_CTL_DEL) 失败\n", __FILE__, __LINE__);
+        debug_point();
         return ERROR;
     }
 

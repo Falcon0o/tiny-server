@@ -380,7 +380,6 @@ void Event::http_keepalive_handler()
      * MSIE closes a keepalive connection with RST flag
      * so we ignore ECONNRESET here.
      */
-    // c->log_error = NGX_ERROR_IGNORE_ECONNRESET;
     errno = 0;
 
     ssize_t n = c->recv_to_buffer(b);
@@ -404,7 +403,6 @@ void Event::http_keepalive_handler()
     }
 
     if (n == 0) {
-        log_error(LogLevel::debug, "(%s: %d) client closed keepalive connection\n", __FILE__, __LINE__);
         c->close_http_connection();
         return;
     }
@@ -473,7 +471,7 @@ void Event::process_http_request_line_handler()
     HttpRequest *r = c->m_data.r;
 
     if (m_timeout) {
-        log_error(LogLevel::debug, "(%s: %d) client timed out\n", __FILE__, __LINE__);
+        LOG_ERROR(LogLevel::debug, "(%s: %d) 客户端连接超时\n", __FILE__, __LINE__);
         c->m_timedout = true;
         c->close_http_request(REQUEST_TIME_OUT);
         return;
@@ -571,7 +569,6 @@ void Event::process_http_request_headers_handler()
     Connection *const c = m_connection;
     HttpRequest *r = c->m_data.r;
     if (m_timeout) {
-        log_error(LogLevel::debug, "%s: %d\n", __FILE__, __LINE__);
         c->m_timedout = true;
         c->close_http_request(REQUEST_TIME_OUT);
         return;
@@ -592,12 +589,12 @@ void Event::process_http_request_headers_handler()
 
                 if (rv == DECLINED) {
                     if (r->m_header_name_start == nullptr) {
-                        log_error(LogLevel::info, "%s: %d  client sent too large request\n", 
+                        LOG_ERROR(LogLevel::info, "%s: %d  client sent too large request\n", 
                                             __FILE__, __LINE__);
                         c->finalize_http_request(r, REQUEST_HEADER_TOO_LARGE);
                         break;
                     }
-                    log_error(LogLevel::info, "%s: %d client sent too long header line\n", 
+                    LOG_ERROR(LogLevel::info, "%s: %d  client sent too large request\n", 
                                             __FILE__, __LINE__);
                     c->finalize_http_request(r, REQUEST_HEADER_TOO_LARGE);
                     break;
@@ -662,30 +659,9 @@ void Event::process_http_request_headers_handler()
             continue;
         }
 
-        log_error(LogLevel::info, "%s: %d client sent invalid header line\n", 
-                                            __FILE__, __LINE__);
+        LOG_ERROR(LogLevel::info, "%s: %d client sent invalid header line\n", __FILE__, __LINE__);
         c->finalize_http_request(r, BAD_REQUEST);
         break;
     }
     c->run_posted_http_requests();
 }
-
-// void http_block_reading_handler(Event *ev)
-// {
-//     Connection *conn = ev->get_data<Connection*>();
-//     HttpRequest *req = conn->get_data<HttpRequest*>();
-
-//     if (conn->close()) {
-//         // TODO: 
-//         req->terminate_with_status_code(HttpStatus::UNSET);
-//         // ngx_http_run_posted_requests(c);
-//         return;
-//     }
-
-//     if (ev->delayed() && ev->timeout()) {
-//         ev->set_delayed(false);
-//         ev->set_timeout(false);
-//     }
-
-//     // 啥也不做
-// }

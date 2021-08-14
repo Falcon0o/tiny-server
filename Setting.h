@@ -66,7 +66,7 @@ constexpr uInt      OPEN_FILE_CACHE_MAX = 3;
 constexpr uInt      OPEN_FILE_CACHE_MIN_USES = 1;
 
 constexpr rlim_t     WORKER_RLIMIT_NOFILE    = 0;
-constexpr rlim_t     WORKER_RLIMIT_CORE      = 10000;
+constexpr rlim_t     WORKER_RLIMIT_CORE      = 1000000;
 
 
 #endif
