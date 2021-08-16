@@ -1,0 +1,6 @@
+a.out
+.vscode/settings.json
+core
+src/*.o
+src/TinyServer
+bench/__pycache__
