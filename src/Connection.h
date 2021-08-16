@@ -2,7 +2,9 @@
 #define _CONNECTION_H_INCLUDED_
 
 #include "Config.h"
-#include "Pool.h"
+
+#include "Event.h"
+
 class Buffer;
 class BufferChain;
 class Event;
@@ -10,7 +12,7 @@ class Listening;
 class HttpRequest;
 class HttpConnection;
 class IOVector;
-
+class Pool;
 enum {
     TCP_NODELAY_UNSET = 0,
     TCP_NODELAY_SET,
@@ -26,16 +28,21 @@ enum {
 class Connection {
 
 public:
-    Connection()    = default;
-    ~Connection()   = default;
+    Connection() noexcept;
+    ~Connection();
 
     Connection(const Connection &)              = delete;
     Connection& operator=(const Connection &)   = delete;
     Connection(Connection &&)                   = delete;
     Connection& operator=(Connection &&)        = delete;
 
-    void free_connection();
-    void reusable_connection(bool reusable);
+    using Deleter = void(*)(void *);
+
+    void *pool_malloc(size_t s, Deleter deleter = [](void *addr){ ::free(addr); });
+    void *pool_calloc(size_t n, size_t size, Deleter deleter = [](void *addr){ ::free(addr); });
+    void pool_free(void *addr);
+
+    void reinitialize(int fd) noexcept;
     void close_connection();
 
     HttpConnection *create_http_connection();
@@ -64,14 +71,16 @@ public:
     BufferChain *sendfile_from_buffer_chain(BufferChain *in, off_t limit);
     ssize_t sendfile_from_buffer(Buffer *buf, size_t size);
     ssize_t write_from_iovec(IOVector *iov);
+
+    Event                                m_rev;
+    Event                                m_wev;
+
     union {
         HttpConnection  *hc;
-        Connection      *c;
+        Connection      *next;
         HttpRequest     *r;
         void            *v;
     }                                    m_data;
-    Event                               *m_read_event;
-    Event                               *m_write_event;
     int                                  m_fd;
     
     Listening                           *m_listening;
@@ -81,7 +90,6 @@ public:
 
     unsigned                             m_close:1;    
     unsigned                             m_reusable:1;
-    std::list<Connection*>::iterator     m_reusable_iter;
     unsigned                             m_shared:1;
     unsigned                             m_destroyed:1;
     unsigned                             m_timedout:1;
@@ -90,13 +98,14 @@ public:
 
     unsigned                             m_tcp_nodelay:2;
     unsigned                             m_idle:1;
-
+    
+    std::list<Connection*>::iterator     m_reusable_iter;
     sockaddr                            *m_sockaddr;
     mSec                                 m_start_time;
 
     Buffer                              *m_small_buffer;
     off_t                                m_sent;
     uInt                                 m_request_cnt;
-    Pool                                 m_pool;
+    Pool                                *m_pool;
 };
 #endif

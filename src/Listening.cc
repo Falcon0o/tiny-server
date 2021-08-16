@@ -98,6 +98,19 @@ Int Listening::open_listening_socket()
         return ERROR;
     }
 
+    if (m_reuseport) {
+        onoff = 1;
+        if (setsockopt(m_fd, SOL_SOCKET, SO_REUSEPORT, 
+                                &onoff, sizeof(int)) == -1) 
+        {
+            debug_point();
+            if (close(m_fd) == -1) {
+                debug_point();
+            }
+            return ERROR;
+        }
+    }
+
     if (m_sockaddr.sa_family == AF_INET6) {
         onoff = m_ipv6only;
         if (setsockopt(m_fd, IPPROTO_IPV6, IPV6_V6ONLY, 
@@ -136,13 +149,16 @@ Int Listening::open_listening_socket()
         return ERROR;
     }
     if (bind(m_fd, &m_sockaddr, socklen) == -1) {
+        int err = errno;
+        printf("bind()失败, errno %d: %s, ===== %d, %s\n", err, strerror(err), __LINE__, __FILE__);
+        fflush(stdout);
         debug_point();
         if (close(m_fd) == -1) {
             debug_point();
         }
         return ERROR;
     }
-
+    printf("bind()成功, ===== %d, %s\n", __LINE__, __FILE__);
     if (listen(m_fd, m_backlog) == -1) {
         debug_point();
         if (close(m_fd) == -1) {
@@ -151,8 +167,6 @@ Int Listening::open_listening_socket()
         return ERROR;
     }
 
-/* 以下的设置即使失败不需要关闭 m_fd */
-#undef CloseSocketAndReturn
 
     if (m_rcvbuf != -1) {
         if (setsockopt(m_fd, SOL_SOCKET, SO_RCVBUF,
@@ -234,30 +248,3 @@ Int Listening::open_listening_socket()
     }
     return OK;
 }
-
-// void ListeningSocket::init_connection(Connection *conn) 
-// {
-//     HttpConnection *hc = new HttpConnection();
-
-//     if (!hc) {
-//         conn->close_http_connection();
-//         return;
-//     }
-//     conn->set_data(hc);
-//     Event *rev = conn->m_rev;
-//     Event *wev = conn->m_wev;
-    
-    
-//     rev->set_handler(wait_request_handler);
-//     wev->set_handler(empty_handler);
-
-//     if (rev->ready()) {
-//         rev->run_handler();
-//         return;
-//     }
-//     // TODO
-//     // ngx_add_timer(rev, cscf->client_header_timeout);
-//     // ngx_reusable_connection(c, 1);
-    
-//     // get_singleton_cycle()->epoll_add_read_event(rev);
-// }

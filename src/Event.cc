@@ -2,7 +2,7 @@
 
 #include "Buffer.h"
 #include "Connection.h"
-#include "Connections.h"
+
 
 #include "Cycle.h"
 #include "Epoller.h"
@@ -11,47 +11,38 @@
 #include "Listening.h"
 #include "Pool.h"
 #include "Timer.h"
+#include "ConnectionPool.h"
 
-Int Event::add_read_event(unsigned flags)
+Event::Event(bool instance)
+:   m_instance(instance),
+    m_closed(true)
 {
-    return g_epoller->add_read_event(this, flags);
+
 }
 
-Int Event::del_read_event(bool close)
-{
-    return g_epoller->del_read_event(this, close);
-}
+void Event::reinitialize(Connection *c, bool instance, bool write) noexcept {
+    
+    m_connection        = c;
+    m_instance          = instance;
+    m_write             = write;
 
-Int Event::add_write_event(unsigned flags)
-{
-    return g_epoller->add_write_event(this, flags);
-}
-
-Int Event::del_write_event(bool close)
-{
-    return g_epoller->del_write_event(this, close);
-}
-
-void Event::add_timer(mSec timer)
-{
-    g_epoller->add_timer(this, timer);
-}
-
-void Event::del_timer()
-{
-    g_epoller->del_timer(this);
-}
-
-void Event::add_posted_event()
-{
-    g_epoller->add_posted_event(this);
+    m_closed            = false; 
+    m_accept            = false;
+    m_deferred_accept   = false;
+    m_pending_eof       = false;
+    m_active            = false;
+    m_timeout           = false;
+    
+    m_delayed           = false;
+    m_ready             = false;
+    m_eof               = false;
+    m_err               = false;
+    m_timer_set         = false;
+    m_posted            = false;
 }
 
 
-void Event::del_posted_event()
-{
-    g_epoller->del_posted_event(this);
-}
+
 
 
 void Event::accept_connection() {
@@ -125,7 +116,7 @@ void Event::accept_connection() {
             // log_error(LogLevel::info, " %ud.%ud.%ud.%ud : %d (%s: %d)\n", uc[0], uc[1], uc[2], uc[3], ntohs(sin->sin_port), __FILE__, __LINE__); 
         }
 
-        Connection *c = g_connections->get_connection(s);
+        Connection *c = g_connection_pool->get_connection(s);
 
         if (c == nullptr) {
 
@@ -139,7 +130,7 @@ void Event::accept_connection() {
 
         c->m_type = SOCK_STREAM;
         
-        c->m_sockaddr = static_cast<sockaddr*>(c->m_pool.malloc(sizeof(sockaddr)));
+        c->m_sockaddr = static_cast<sockaddr*>(c->pool_malloc(sizeof(sockaddr)));
         
         if (c->m_sockaddr == nullptr) {
 
@@ -155,8 +146,8 @@ void Event::accept_connection() {
 
         c->m_listening = ls;
 
-        Event *rev = c->m_read_event;
-        Event *wev = c->m_write_event;
+        Event *rev = &c->m_rev;
+        Event *wev = &c->m_wev;
 
         wev->m_ready = true;
 
@@ -179,12 +170,12 @@ void Event::accept_connection() {
             continue;
         }
 
-        if (c->m_read_event->m_ready) {
-            c->m_read_event->run_handler();
+        if (c->m_rev.m_ready) {
+            c->m_rev.run_handler();
 
         } else {
-            c->m_read_event->add_timer(CLIENT_HEADER_TIMEOUT);
-            c->reusable_connection(true);
+            g_epoller->add_timer(&c->m_rev, CLIENT_HEADER_TIMEOUT);
+            g_connection_pool->reusable_connection(c, true);
         }
         
     } while(m_available_n);
@@ -200,18 +191,18 @@ void Event::empty_handler()
 
 void Event::wait_http_request()
 {
-    LOG_ERROR(LogLevel::info, "Event::wait_http_request() 开始\n"
+    LOG_ERROR(LogLevel::info, "Event::wait_http_request() 开始"
                         " ==== %s %d\n", __FILE__, __LINE__);
     Connection *const c = m_connection;
     if (m_timeout) {
-        LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败：事件超时\n"
+        LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败：事件超时"
                         " ==== %s %d\n", __FILE__, __LINE__);
         c->close_http_connection();
         return;
     }
     
     if (c->m_close) {
-        LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败：连接被关闭\n"
+        LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败：连接被关闭"
                         " ==== %s %d\n", __FILE__, __LINE__);
         c->close_http_connection();
         return;
@@ -221,7 +212,7 @@ void Event::wait_http_request()
     
     Buffer *buf = c->m_small_buffer;
     if (buf == nullptr) {
-        buf = Buffer::create_temp_buffer(&c->m_pool, CLIENT_HEADER_BUFFER_SIZE);
+        buf = Buffer::create_temp_buffer(c, CLIENT_HEADER_BUFFER_SIZE);
 
         if (buf == nullptr) {
             LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败\n"
@@ -234,7 +225,8 @@ void Event::wait_http_request()
     
     } else if (buf->m_start == nullptr) {
 
-        buf->m_start = static_cast<u_char*>(c->m_pool.malloc(CLIENT_HEADER_BUFFER_SIZE));
+        buf->m_start = 
+                static_cast<u_char*>(c->pool_malloc(CLIENT_HEADER_BUFFER_SIZE));
 
         if(buf->m_start == nullptr) {
             LOG_ERROR(LogLevel::alert, "Event::wait_http_request() 失败\n"
@@ -256,8 +248,8 @@ void Event::wait_http_request()
             LOG_ERROR(LogLevel::info, "Event::add_timer(CLIENT_HEADER_TIMEOUT)\n"
                         " ==== %s %d", __FILE__, __LINE__);
 
-            add_timer(CLIENT_HEADER_TIMEOUT);
-            g_connections->reusable_connection(c, true);
+            g_epoller->add_timer(this, CLIENT_HEADER_TIMEOUT);
+            g_connection_pool->reusable_connection(c, true);
         }
 
         if (!m_active && !m_ready) {
@@ -272,7 +264,7 @@ void Event::wait_http_request()
         /*
          * We are trying to not hold c->buffer's memory for an idle connection.
          */
-        c->m_pool.free(buf->m_start);
+        c->pool_free(buf->m_start);
         buf->m_start = nullptr;
 
         return;
@@ -297,7 +289,7 @@ void Event::wait_http_request()
 
     buf->m_last += n;
 
-    g_connections->reusable_connection(c, false);
+    g_connection_pool->reusable_connection(c, false);
 
     HttpRequest *r = c->create_http_request();
 
@@ -359,7 +351,7 @@ void Event::http_keepalive_handler()
          * However, the c->buffer->start and c->buffer->end were not changed
          * to keep the buffer size.
          */
-        b->m_pos = (u_char*)c->m_pool.malloc(b->m_end - b->m_start);
+        b->m_pos = (u_char*)c->pool_malloc(b->m_end - b->m_start);
         if (b->m_pos == nullptr) {
             c->close_http_connection();
             return;
@@ -386,7 +378,7 @@ void Event::http_keepalive_handler()
             }
         }
 
-        c->m_pool.free(b->m_start);
+        c->pool_free(b->m_start);
         b->m_pos = nullptr;
         return;
     }
@@ -404,7 +396,7 @@ void Event::http_keepalive_handler()
     b->m_last += n;
 
     c->m_idle = false;
-    g_connections->reusable_connection(c, false);
+    g_connection_pool->reusable_connection(c, false);
     c->m_data.r = c->create_http_request();
 
     if (c->m_data.r == nullptr) {
@@ -415,10 +407,10 @@ void Event::http_keepalive_handler()
     c->m_sent = 0;
     c->m_destroyed = false;
     
-    g_epoller->del_timer(c->m_read_event);
+    g_epoller->del_timer(&c->m_rev);
 
-    c->m_read_event->set_handler(&Event::process_http_request_line_handler);
-    c->m_read_event->run_handler();
+    c->m_rev.set_handler(&Event::process_http_request_line_handler);
+    c->m_rev.run_handler();
 }
 
 
@@ -616,7 +608,7 @@ void Event::process_http_request_headers_handler()
             StringSlice value(r->m_header_start, r->m_header_end - r->m_header_start);
             value.m_data[value.m_len] = '\0';
 
-            void *lowcase_key = r->m_pool->malloc(key.m_len);
+            void *lowcase_key = r->pool_malloc(key.m_len);
             if (lowcase_key == nullptr) {
                 c->close_http_request(INTERNAL_SERVER_ERROR);
                 break;

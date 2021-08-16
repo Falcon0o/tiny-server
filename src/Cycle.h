@@ -7,7 +7,6 @@
 #include "Listening.h"
 #include "Process.h"
 
-
 class Cycle {
 public:
     Cycle();
@@ -18,6 +17,13 @@ public:
         m_listening_sockets.emplace_back(std::forward<_Args>(__args)...);
     }
 
+    void set_connection_pool_slot(size_t) noexcept;
+    void set_worker_rlimit_nofile(size_t s) noexcept {
+        m_worker_rlimit_nofile = s;
+    }
+    void set_worker_rlimit_core(size_t s) noexcept {
+        m_worker_rlimit_core = s;
+    }
     void master_process_cycle();
     void worker_process_cycle();
     void worker_process_before_cycle();
@@ -44,6 +50,9 @@ private:
     std::vector<Listening>          m_listening_sockets;
     size_t                          m_worker_cnt;
     size_t                          m_worker_id;
+
+    size_t                          m_worker_rlimit_nofile;
+    size_t                          m_worker_rlimit_core;
 };
 
 

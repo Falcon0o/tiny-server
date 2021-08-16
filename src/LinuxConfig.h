@@ -8,7 +8,7 @@
 #include <netinet/tcp.h>
 #include <stdio.h>
 #include <string.h>
-
+#include <sys/uio.h>
 #include <sys/epoll.h>
 #include <sys/fcntl.h>
 #include <sys/ioctl.h>

@@ -5,16 +5,24 @@
 #include "Buffer.h"
 #include "BufferChain.h"
 #include "Epoller.h"
+#include "Pool.h"
 #include "Event.h"
 #include "File.h"
 #include "OpenFileInfo.h"
 #include "CachedOpenFile.h"
-HttpRequest::HttpRequest() 
-:   m_phase_engine(this) {}
+HttpRequest::HttpRequest(Pool *pool) 
+:   m_pool(pool), 
+    m_phase_engine(this),
+    m_write_event_handler(nullptr),
+    m_read_event_handler(nullptr) {}
+
+HttpRequest::~HttpRequest() {
+    delete m_pool;
+}
 
 void HttpRequest::block_reading_handler()
 {
-    Event *rev = m_connection->m_read_event;
+    Event *rev = &m_connection->m_rev;
     
     if (rev->m_active) {
         if (g_epoller->del_read_event(rev, false) != OK)
@@ -56,16 +64,19 @@ Int HttpRequest::alloc_large_header_buffer(bool request_line)
         m_http_connection->m_free_buffers = bc->m_next;
     
     } else if (m_http_connection->m_busy_buffers_num < LARGE_CLIENT_HEADER_BUFFER_NUM){
-        b = Buffer::create_temp_buffer(&m_connection->m_pool, LARGE_CLIENT_HEADER_BUFFER_SIZE);
+        b = Buffer::create_temp_buffer(m_connection, LARGE_CLIENT_HEADER_BUFFER_SIZE);
 
         if (b == nullptr) {
             return ERROR;
         }
 
-        BufferChain *bc = static_cast<BufferChain*>(m_connection->m_pool.malloc(sizeof(BufferChain)));
+        BufferChain *bc = static_cast<BufferChain*>(
+                    m_connection->pool_malloc(sizeof(BufferChain)));
+
         if (bc == nullptr) {
             return ERROR;
         }
+
         bc->m_buffer = b;
     } else {
         return DECLINED;
@@ -159,7 +170,7 @@ ssize_t HttpRequest::read_request_header()
         return can_read_ssize;
     }
     
-    Event *rev = m_connection->m_read_event;
+    Event *rev = &m_connection->m_rev;
     if (rev->m_ready) {
         can_read_ssize = m_connection->recv_to_buffer(m_header_in_buffer);
     
@@ -774,12 +785,12 @@ Int HttpRequest::process_request_header()
 
 void HttpRequest::process_request()
 {
-    if (m_connection->m_read_event->m_timer_set) {
-        g_epoller->del_timer(m_connection->m_read_event);
+    if (m_connection->m_rev.m_timer_set) {
+        g_epoller->del_timer(&m_connection->m_rev);
     }
 
-    m_connection->m_read_event->set_handler(&Event::http_request_handler);
-    m_connection->m_write_event->set_handler(&Event::http_request_handler);
+    m_connection->m_rev.set_handler(&Event::http_request_handler);
+    m_connection->m_wev.set_handler(&Event::http_request_handler);
 
     set_read_event_handler(&HttpRequest::block_reading_handler);
     http_handler();
@@ -856,7 +867,7 @@ Int HttpRequest::http_static_handler()
     }
 
     StringSlice &&path = map_uri_to_path();
-    LOG_ERROR(LogLevel::info, "`%s\'\n", path.m_data);
+    // LOG_ERROR(LogLevel::info, "`%s\'\n", path.m_data);
 
     OpenFileInfo info;
     if (CachedOpenFile::open_cached_file(path, info) == ERROR) {
@@ -978,7 +989,7 @@ Int HttpRequest::response_header_filter()
         len += sizeof("Connection: close" CRLF) - 1;
     }
 
-    Buffer *buf = Buffer::create_temp_buffer(m_pool, len);
+    Buffer *buf = Buffer::create_temp_buffer(this, len);
 
     if (buf == nullptr) {
         return ERROR;
@@ -1088,7 +1099,7 @@ Int HttpRequest::set_write_handler()
 
     set_write_event_handler(&HttpRequest::http_writer);
 
-    Event *wev = m_connection->m_write_event;
+    Event *wev = &m_connection->m_wev;
     if (wev->m_ready || wev->m_delayed) {
         return OK;
     }
@@ -1109,7 +1120,7 @@ Int HttpRequest::set_write_handler()
 void HttpRequest::http_writer()
 {
     Connection *c = m_connection;
-    Event *wev = c->m_write_event;
+    Event *wev = &c->m_wev;
 
     if (wev->m_timeout) {
         c->m_timedout = true;
@@ -1151,4 +1162,16 @@ void HttpRequest::http_writer()
     set_write_event_handler(&HttpRequest::empty_handler);
 
     c->finalize_http_request(this, rc);
+}
+
+void *HttpRequest::pool_malloc(size_t s, Deleter deleter) {
+    return m_pool->malloc(s, deleter);
+}
+
+void *HttpRequest::pool_calloc(size_t n, size_t size, Deleter deleter) {
+    return m_pool->calloc(n, size, deleter);
+}
+
+void HttpRequest::pool_free(void *addr) {
+    m_pool->free(addr);
 }

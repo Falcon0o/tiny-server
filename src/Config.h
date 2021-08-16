@@ -18,8 +18,8 @@ enum class LogLevel {
     if (level >= LogLevel::alert) {         \
         fflush(g_log_file);                 \
     }
-
-
+#undef LOG_ERROR
+#define LOG_ERROR(...)
 // #define LOG_ERROR_0(level, log)  fprintf(g_log_file, log); 
 
 

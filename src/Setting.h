@@ -3,10 +3,8 @@
 
 #include "Types.h"
 
-constexpr size_t WORKER_CONNECTIONS = 512;
-
 /* 最大 worker 进程数，为 0 时不做限制 */
-constexpr size_t MAX_WORKER_PROCESSES = 1;
+constexpr size_t MAX_WORKER_PROCESSES = 0;
 // constexpr unsigned int CLIENT_HEADER_BUFFER_SIZE = 100;
 constexpr size_t CLIENT_HEADER_BUFFER_SIZE = 1024;
 
@@ -32,7 +30,6 @@ constexpr size_t IOVS_PREALLOCATE = 64;
 constexpr bool RESET_TIMEDOUT_CONNECTION = true;
 constexpr bool DAEMONIZED = false;
 constexpr size_t EPOLL_EVENTS_SLOT = 512;
-constexpr size_t CONNECTIONS_SLOT = 512;
 
 // 时间粒度
 constexpr mSec TIME_RESOLUTION = 100;
@@ -51,13 +48,6 @@ constexpr mSec KEEPALIVE_TIMEOUT = 75000;
 
 // 若文件小于这个值，使用sendfile, 
 constexpr off_t MIN_DIRECTIO_SIZE    = MAX_OFF_T_VALUE; // 4 * 1024 * 1024;
-    // ngx_conf_merge_sec_value(conf->keepalive_header,
-    //                           prev->keepalive_header, 0);
-    // ngx_conf_merge_uint_value(conf->keepalive_requests,
-    //                           prev->keepalive_requests, 1000);
-    // ngx_conf_merge_msec_value(conf->resolver_timeout,
-    //                           prev->resolver_timeout, 30000);
-
 
 constexpr time_t    OPEN_FILE_CACHE_VALID = 60;
 constexpr time_t    OPEN_FILE_CACHE_INACTIVE = 60;
@@ -65,8 +55,6 @@ constexpr time_t    OPEN_FILE_CACHE_INACTIVE = 60;
 constexpr uInt      OPEN_FILE_CACHE_MAX = 3;
 constexpr uInt      OPEN_FILE_CACHE_MIN_USES = 1;
 
-constexpr rlim_t     WORKER_RLIMIT_NOFILE    = 0;
-constexpr rlim_t     WORKER_RLIMIT_CORE      = 1000000;
 
 
 #endif

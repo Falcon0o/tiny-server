@@ -2,8 +2,6 @@
 #define _CACHED_OPEN_FILE_H_INCLUDED_
 
 #include "Config.h"
-
-
 #include "StringSlice.h"
 
 class OpenFileInfo;

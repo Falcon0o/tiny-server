@@ -9,20 +9,22 @@ class Connection;
 class Event 
 {
 public: 
+    Event(bool instance);
+    ~Event() { }
+    
+    Event()                         = delete;
+    Event(const Event &)            = delete;
+    Event& operator=(const Event &) = delete;
+    Event(Event &&)                 = delete;
+    Event& operator=(Event &&)      = delete;
 
-    Int add_read_event(unsigned flags); 
-    Int del_read_event(bool close);
-
-    Int add_write_event(unsigned flags); 
-    Int del_write_event(bool close);
-
-    void add_timer(mSec timer);
-    void del_timer();
-
-    void add_posted_event();
-    void del_posted_event();
+    void reinitialize(Connection *, bool instance, bool write) noexcept;
 
     typedef void(Event::*Handler)();
+
+/* 关于stale events，例如epoll_wait返回事件 A B C，有以下几种情况，
+    1.  A关闭了B事件所在连接，则处理B事件可以从connection::m_fd == -1发现被关闭
+    2.  A关闭了B事件，若B事件所在连接未被关闭，则B事件的m_instance的会和···相反 */
 
     unsigned            m_instance:1;
     unsigned            m_closed:1;

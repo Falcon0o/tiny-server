@@ -1,7 +1,5 @@
 #include "IOVector.h"
 
-#include <sys/uio.h>
-
 #include "Buffer.h"
 #include "BufferChain.h"
 

@@ -5,7 +5,7 @@
 extern class Cycle          *g_cycle;
 extern class Process        *g_process;
 extern class Epoller        *g_epoller;
-extern class Connections    *g_connections;
+extern class ConnectionPool *g_connection_pool;
 extern class Timer          *g_timer;
 extern class OpenFileCache  *g_open_file_cache;
 

@@ -1,26 +1,26 @@
 #include "Cycle.h"
 
 #include "Connection.h"
-#include "Connections.h"
 #include "Epoller.h"
 #include "Timer.h"
 #include "Pool.h"
+#include "ConnectionPool.h"
 
-static Cycle singleton;
-
-Cycle *g_cycle = &singleton;
+Cycle *g_cycle = nullptr;
 
 Cycle::Cycle()
 :   m_master_process(Process::Type::master, getppid(), getgid()),
     m_worker_cnt(0),
-    m_worker_id(0)
+    m_worker_id(0),
+    m_worker_rlimit_nofile(0),
+    m_worker_rlimit_core(0)
 {
     g_process = &m_master_process;
 }
 
-Cycle::~Cycle()
-{
-
+Cycle::~Cycle() {
+    delete g_connection_pool;
+    g_connection_pool = nullptr;
 }
 
 
@@ -43,7 +43,7 @@ void Cycle::master_process_cycle()
         return;
     }
 
-    g_log_file = stdout;
+    // g_log_file = stdout;
 
     int err = errno;
     for (size_t i = 0; i < m_worker_cnt; ++i) {
@@ -57,7 +57,7 @@ void Cycle::master_process_cycle()
             continue;
 
         case 0:
-            g_log_file = stdout;
+            // g_log_file = stdout;
             g_process = &m_worker_processes[i];
             g_process->m_pid = getpid();
             m_worker_id = i;
@@ -174,17 +174,17 @@ Int Cycle::open_listening_sockets()
             continue;
         }
 
-        Connection *conn = g_connections->get_connection(ls.m_fd);
-        if (conn == nullptr) {
+        Connection *c = g_connection_pool->get_connection(ls.m_fd);
+        if (c == nullptr) {
             LOG_ERROR(LogLevel::info, "%s %d, 无可用空闲连接\n", __FILE__, __LINE__);
             return ERROR;
         }
 
-        conn->m_listening = &ls;
-        ls.m_connection = conn;
-        conn->m_type = SOCK_STREAM;
+        c->m_listening = &ls;
+        ls.m_connection = c;
+        c->m_type = SOCK_STREAM;
 
-        Event *rev = conn->m_read_event;
+        Event *rev = &c->m_rev;
         rev->m_accept = true;
         rev->m_deferred_accept = ls.m_deferred_accept;
         rev->set_handler(&Event::accept_connection);
@@ -214,13 +214,13 @@ Int Cycle::enable_all_accept_events() {
     for (int i = 0; i < m_listening_sockets.size(); ++i) {
 
         Listening *ls = &m_listening_sockets[i];
-        Connection *conn = ls->m_connection;
+        Connection *c = ls->m_connection;
 
-        if (conn == nullptr || conn->m_read_event->m_active) {
+        if (c == nullptr || c->m_rev.m_active) {
             continue;
         }
 
-        if (g_epoller->add_read_event(conn->m_read_event, 0) == ERROR) {
+        if (g_epoller->add_read_event(&c->m_rev, 0) == ERROR) {
 
             LOG_ERROR(LogLevel::alert, "Cycle::enable_all_accept_events() 开始\n"
                         " ==== %s %d", __FILE__, __LINE__);
@@ -236,13 +236,13 @@ Int Cycle::disable_all_accept_events()
     for (int i = 0; i < m_listening_sockets.size(); ++i) {
         
         Listening *ls = &m_listening_sockets[i];
-        Connection *conn = ls->m_connection;
+        Connection *c = ls->m_connection;
 
-        if (conn == nullptr || !conn->m_read_event->m_active) {
+        if (c == nullptr || !c->m_rev.m_active) {
             continue;
         }
 
-        if (g_epoller->del_read_event(conn->m_read_event, false) == ERROR) {
+        if (g_epoller->del_read_event(&c->m_rev, false) == ERROR) {
             return ERROR;
         }
     }
@@ -252,6 +252,7 @@ Int Cycle::disable_all_accept_events()
 
 void Cycle::worker_process_before_cycle() {
 
+    g_connection_pool->initialize();
     g_epoller->create1();
 
     /* 时间粒度 */
@@ -277,21 +278,25 @@ void Cycle::worker_process_before_cycle() {
     }
 
     struct rlimit rlimit;
-    if (WORKER_RLIMIT_NOFILE > 0) {
-        rlimit.rlim_max = WORKER_RLIMIT_NOFILE;
-        rlimit.rlim_cur = WORKER_RLIMIT_NOFILE;
+    if (m_worker_rlimit_nofile > 0) {
+        rlimit.rlim_max = m_worker_rlimit_nofile;
+        rlimit.rlim_cur = m_worker_rlimit_nofile;
         if (setrlimit(RLIMIT_NOFILE, &rlimit) == -1) {
             debug_point();
         }
     }
 
-    if (WORKER_RLIMIT_CORE > 0) {
-        rlimit.rlim_max = WORKER_RLIMIT_CORE;
-        rlimit.rlim_cur = WORKER_RLIMIT_CORE;
+    if (m_worker_rlimit_core > 0) {
+        rlimit.rlim_max = m_worker_rlimit_core;
+        rlimit.rlim_cur = m_worker_rlimit_core;
         if (setrlimit(RLIMIT_CORE, &rlimit) == -1) {
             debug_point();
         }
     }
     
     open_listening_sockets();
+}
+
+void Cycle::set_connection_pool_slot(size_t s) noexcept {
+    g_connection_pool = new ConnectionPool(s);
 }

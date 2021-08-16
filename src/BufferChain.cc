@@ -1,7 +1,5 @@
 #include "BufferChain.h"
 
-#include <sys/uio.h>
-
 #include "Buffer.h"
 #include "Cycle.h"
 

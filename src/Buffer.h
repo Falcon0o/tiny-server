@@ -4,6 +4,8 @@
 #include "Config.h"
 #include "StringSlice.h"
 
+class Connection;
+class HttpRequest;
 struct OFF_T{
     OFF_T(off_t c) : x(c) {}
     off_t x;
@@ -25,7 +27,9 @@ class OpenFileInfo;
 class File;
 class Buffer {
 public:
-    static Buffer *create_temp_buffer(Pool *pool, size_t size);
+    static Buffer *create_temp_buffer(Connection *, size_t size);
+    static Buffer *create_temp_buffer(HttpRequest *, size_t size);
+
     static Buffer *create_file_buffer(Pool *pool, const OpenFileInfo &ofi);
 
     bool in_memory() const { 

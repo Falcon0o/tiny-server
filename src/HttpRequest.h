@@ -7,7 +7,7 @@
 #include "HttpHeadersOut.h"
 #include "HttpPhaseEngine.h"
 
-#include "Pool.h"
+class Pool;
 
 class Buffer;
 class BufferChain;
@@ -17,8 +17,8 @@ class HttpConnection;
 
 class HttpRequest {
 public:
-    HttpRequest();
-    ~HttpRequest() {}
+    HttpRequest(Pool*);
+    ~HttpRequest();
     ssize_t     read_request_header();
 
 #define     PARSE_HEADER_DONE           1
@@ -124,18 +124,21 @@ public:
     Int response_header_filter();
     Int response_body_filter(BufferChain *);
 
-    template <typename T> void set_read_event_handler(T f) {
-        m_read_event_handler = std::bind(f, this);
+    typedef void(HttpRequest::*Handler)();
+
+    void set_read_event_handler(Handler h) {
+        m_read_event_handler = h;
     }
-    template <typename T> void set_write_event_handler(T f) {
-        m_write_event_handler = std::bind(f, this);
+
+    void set_write_event_handler(Handler h) {
+        m_write_event_handler = h;
     }
 
     void run_read_handler() { 
-        m_read_event_handler();
+        (this->*m_read_event_handler)();
     }
     void run_write_handler() { 
-        m_write_event_handler(); 
+        (this->*m_write_event_handler)(); 
     }
 
     Int set_write_handler();
@@ -152,16 +155,24 @@ public:
     Int http_static_handler();
     void http_test_reading();
     void http_writer();
-    Pool                                *m_pool;
 
-    std::function<void()>       m_read_event_handler;
-    std::function<void()>       m_write_event_handler;
+    Handler                              m_read_event_handler;
+    Handler                              m_write_event_handler;
 
     uInt                        m_parse_state;
 
     // TODO: 暂未使用的变量
     void                        *m_content_handler;
     BufferChain                 *m_out_buffer_chain;
+
+    using Deleter = void(*)(void *);
+
+    void *pool_malloc(size_t s, Deleter deleter = [](void *addr){ ::free(addr); });
+    void *pool_calloc(size_t n, size_t size, Deleter deleter = [](void *addr){ ::free(addr); });
+    void pool_free(void *addr);
+private:
+
+    Pool                                *m_pool;
 };
 
 

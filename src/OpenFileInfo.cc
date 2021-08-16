@@ -15,9 +15,7 @@ OpenFileInfo::OpenFileInfo()
     m_fs_size(0),
     m_err(0),
     m_failed(nullptr)
-{
-
-}
+{ }
 
 OpenFileInfo::OpenFileInfo(const OpenFileInfo &right)
 :   
@@ -31,9 +29,7 @@ OpenFileInfo::OpenFileInfo(const OpenFileInfo &right)
     m_fs_size(right.m_fs_size),
     m_err(right.m_err),
     m_failed(right.m_failed)
-{
-    
-}
+{ }
 
 
 Int OpenFileInfo::stat_file(int fd) {

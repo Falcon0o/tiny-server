@@ -27,6 +27,10 @@ size_t hash_string(const char *c) {
 }
 
 void debug_point() {
+    
+    int err = errno;
+    fprintf(stdout, "errno %d : %s\n", err, strerror(err));
+    fflush(stdout);
     abort();
 }
 
